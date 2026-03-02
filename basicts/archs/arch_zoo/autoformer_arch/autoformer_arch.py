@@ -25,6 +25,7 @@ class Autoformer(nn.Module):
         self.day_of_week_size = model_args.get("day_of_week_size", None)
         self.day_of_month_size = model_args.get("day_of_month_size", None)
         self.day_of_year_size = model_args.get("day_of_year_size", None)
+        
         self.embed = model_args["embed"]
 
         # Decomp
@@ -96,6 +97,7 @@ class Autoformer(nn.Module):
             norm_layer=my_Layernorm(model_args["d_model"]),
             projection=nn.Linear(model_args["d_model"], model_args["c_out"], bias=True)
         )
+        self.outputACT    = nn.Tanh()
 
     def forward_xformer(self, x_enc: torch.Tensor, x_mark_enc: torch.Tensor, x_dec: torch.Tensor, x_mark_dec: torch.Tensor,
                 enc_self_mask: torch.Tensor=None, dec_self_mask: torch.Tensor=None, dec_enc_mask: torch.Tensor=None) -> torch.Tensor:
@@ -116,8 +118,8 @@ class Autoformer(nn.Module):
         Returns:
             torch.Tensor: outputs with shape [B, L2, N, 1]
         """
-
         # decomp init
+        breakpoint()
         mean = torch.mean(x_enc, dim=1).unsqueeze(1).repeat(1, self.pred_len, 1)
         zeros = torch.zeros([x_dec.shape[0], self.pred_len, x_dec.shape[2]], device=x_enc.device)
         seasonal_init, trend_init = self.decomp(x_enc)
@@ -125,16 +127,19 @@ class Autoformer(nn.Module):
         trend_init = torch.cat([trend_init[:, -self.label_len:, :], mean], dim=1)
         seasonal_init = torch.cat([seasonal_init[:, -self.label_len:, :], zeros], dim=1)
         # enc
+        # breakpoint()
         enc_out = self.enc_embedding(x_enc, x_mark_enc)
         enc_out, attns = self.encoder(enc_out, attn_mask=enc_self_mask)
         # dec
         dec_out = self.dec_embedding(seasonal_init, x_mark_dec)
+        # torch.Size([10, 156, 512])torch.Size([10, 144, 512])
         seasonal_part, trend_part = self.decoder(dec_out, enc_out, x_mask=dec_self_mask, cross_mask=dec_enc_mask,
                                                  trend=trend_init)
         # final
         dec_out = trend_part + seasonal_part
-
-        return dec_out[:, -self.pred_len:, :].unsqueeze(-1)  # [B, L, N, C]
+        dec_out = dec_out[:, -self.pred_len:, :]
+        # dec_out = self.outputACT(dec_out)
+        return dec_out.unsqueeze(-1)  # [B, L, N, C]
 
     def forward(self, history_data: torch.Tensor, future_data: torch.Tensor, batch_seen: int, epoch: int, train: bool, **kwargs) -> torch.Tensor:
         """
@@ -146,8 +151,12 @@ class Autoformer(nn.Module):
         Returns:
             torch.Tensor: outputs with shape [B, L2, N, 1]
         """
+        history_data = history_data.to(torch.float32)
+        future_data = future_data.to(torch.float32)
+        breakpoint()
         x_enc, x_mark_enc, x_dec, x_mark_dec = data_transformation_4_xformer(history_data=history_data, future_data=future_data, start_token_len=self.label_len,
                                                                             time_of_day_size=self.time_of_day_size, day_of_week_size=self.day_of_week_size,
                                                                             day_of_month_size=self.day_of_month_size, day_of_year_size=self.day_of_year_size, embed_type=self.embed)
         prediction = self.forward_xformer(x_enc=x_enc, x_mark_enc=x_mark_enc, x_dec=x_dec, x_mark_dec=x_mark_dec)
+
         return prediction

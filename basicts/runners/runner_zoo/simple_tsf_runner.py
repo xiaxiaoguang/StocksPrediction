@@ -1,6 +1,7 @@
 import torch
-
+import torch.nn as nn
 from ..base_tsf_runner import BaseTimeSeriesForecastingRunner
+from basicts.metrics import *
 
 
 class SimpleTimeSeriesForecastingRunner(BaseTimeSeriesForecastingRunner):
@@ -8,8 +9,25 @@ class SimpleTimeSeriesForecastingRunner(BaseTimeSeriesForecastingRunner):
 
     def __init__(self, cfg: dict):
         super().__init__(cfg)
+
+        # self.metrics = cfg.get("METRICS", {"MAE": masked_mae, "RMSE": masked_rmse, "MAPE": masked_mape, "MRLoss":MRLoss
+        #                                     , "Best_Return_10" : bstReturn(10), "Our_Return_10": predReturn(10) , 
+        #                                     "Random_Return_10": RndReturn(10) , "Average_Return": AvgR,
+        #                                     "Sharperatio_10":SR(10),"Success_rate":successK(10)})
+
+        self.metrics = cfg.get("METRICS", {"MAE": masked_mae, "RMSE": masked_rmse, "MAPE": masked_mape})        
         self.forward_features = cfg["MODEL"].get("FORWARD_FEATURES", None)
         self.target_features = cfg["MODEL"].get("TARGET_FEATURES", None)
+
+        if cfg.get("StartTest",False):
+            self.ckpt_save_dir2 = self.ckpt_save_dir 
+            self.ckpt_save_dir = cfg.StartTest.ckpt_save_dir
+
+        for p in self.model.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+            else:
+                nn.init.uniform_(p)
 
     def select_input_features(self, data: torch.Tensor) -> torch.Tensor:
         """Select input features.
@@ -52,7 +70,6 @@ class SimpleTimeSeriesForecastingRunner(BaseTimeSeriesForecastingRunner):
         Returns:
             tuple: (prediction, real_value)
         """
-
         # preprocess
         future_data, history_data = data
         history_data = self.to_running_device(history_data)      # B, L, N, C
@@ -72,7 +89,14 @@ class SimpleTimeSeriesForecastingRunner(BaseTimeSeriesForecastingRunner):
         # feed forward
         assert list(prediction_data.shape)[:3] == [batch_size, length, num_nodes], \
             "error shape of the output, edit the forward function to reshape it to [B, L, N, C]"
+        
+        # label = label[:,:,:,2].unsqueeze(-1)
+        # future_data = future_data * label
+        # label = label.unsqueeze(-1)
+        # prediction = prediction * label        
+        
         # post process
         prediction = self.select_target_features(prediction_data)
-        real_value = self.select_target_features(future_data)
+        real_value = self.select_target_features(future_data_4_dec)
+
         return prediction, real_value

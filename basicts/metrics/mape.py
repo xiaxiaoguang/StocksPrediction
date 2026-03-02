@@ -29,7 +29,16 @@ def masked_mape(preds: torch.Tensor, labels: torch.Tensor, null_val: float = 0.0
     mask = mask.float()
     mask /= torch.mean((mask))
     mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
+    labels = torch.where(labels < 1e-5,torch.ones_like(labels),labels)
+    if(preds.shape!=labels.shape):
+         preds = torch.squeeze(preds,dim=-1)
+
+    if torch.any(torch.isnan(preds)) and torch.any(torch.where(labels)):
+        breakpoint()
+
     loss = torch.abs(torch.abs(preds-labels)/labels)
     loss = loss * mask
+    # if torch.isnan(loss).sum() != torch.zeros(0):
+    # print(loss)
     loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
     return torch.mean(loss)

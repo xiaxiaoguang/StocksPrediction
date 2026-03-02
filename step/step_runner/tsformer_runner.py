@@ -10,6 +10,12 @@ class TSFormerRunner(BaseTimeSeriesForecastingRunner):
         super().__init__(cfg)
         self.forward_features = cfg["MODEL"].get("FORWARD_FEATURES", None)
         self.target_features = cfg["MODEL"].get("TARGET_FEATURES", None)
+        self.Test=False
+        self.name=cfg["DATASET_NAME"]
+        if cfg.get("StartTest",False):
+            self.Test=True
+            self.ckpt_save_dir2 = self.ckpt_save_dir 
+            self.ckpt_save_dir = cfg.StartTest.ckpt_save_dir
 
     def select_input_features(self, data: torch.Tensor) -> torch.Tensor:
         """Select input features and reshape data to fit the target model.
@@ -52,19 +58,25 @@ class TSFormerRunner(BaseTimeSeriesForecastingRunner):
         Returns:
             tuple: (prediction, real_value)
         """
+        if "StockD" in self.name:
+            future_data, history_data, _ = data
+        else :
+            future_data, history_data = data
 
-        # preprocess
-        future_data, history_data = data
         history_data    = self.to_running_device(history_data)      # B, L, N, C
         future_data     = self.to_running_device(future_data)       # B, L, N, C
         batch_size, length, num_nodes, _ = future_data.shape
-
-        history_data = self.select_input_features(history_data)
-
+        history_data    = self.select_input_features(history_data)
+        future_data     = self.select_input_features(future_data)
         # feed forward
-        reconstruction_masked_tokens, label_masked_tokens = self.model(history_data=history_data, future_data=None, batch_seen=iter_num, epoch=epoch)
+        # if self.Test:
+        #     re = self.model(history_data=history_data, future_data=None, batch_seen=iter_num, epoch=epoch)
+        #     prediction = self.select_target_features(re)
+        #     real_value = self.select_target_features(future_data)            
+        #     return prediction,real_value
+        reconstruction_masked_tokens, label_masked_tokens = self.model(history_data=history_data, future_data=future_data, batch_seen=iter_num, epoch=epoch)
         # assert list(prediction_data.shape)[:3] == [batch_size, length, num_nodes], \
-            # "error shape of the output, edit the forward function to reshape it to [B, L, N, C]"
+        # "error shape of the output, edit the forward function to reshape it to [B, L, N, C]"
         # post process
         # prediction = self.select_target_features(prediction_data)
         # real_value = self.select_target_features(future_data)
@@ -78,13 +90,27 @@ class TSFormerRunner(BaseTimeSeriesForecastingRunner):
         Args:
             train_epoch (int, optional): current epoch if in training process.
         """
-
+        # test loop
+        prediction = []
+        real_value = []
         for _, data in enumerate(self.test_data_loader):
-            forward_return = self.forward(data=data, epoch=None, iter_num=None, train=False)
-            # re-scale data
-            prediction_rescaled = SCALER_REGISTRY.get(self.scaler["func"])(forward_return[0], **self.scaler["args"])
-            real_value_rescaled = SCALER_REGISTRY.get(self.scaler["func"])(forward_return[1], **self.scaler["args"])
-            # metrics
-            for metric_name, metric_func in self.metrics.items():
-                metric_item = metric_func(prediction_rescaled, real_value_rescaled, null_val=self.null_val)
-                self.update_epoch_meter("test_"+metric_name, metric_item.item())
+            forward_return = self.forward(data, epoch=None, iter_num=None, train=False)
+            prediction.append(forward_return[0])        # preds = forward_return[0]
+            real_value.append(forward_return[1])        # testy = forward_return[1]``
+        safe_memory = len(self.test_data_loader) // 2
+        prediction = torch.cat(prediction[:safe_memory], dim=0)
+        real_value = torch.cat(real_value[:safe_memory], dim=0) # torch.Size([1712, 1080, 207])
+        # re-scale data
+        prediction = SCALER_REGISTRY.get(self.scaler["func"])(
+            prediction, **self.scaler["args"])
+        real_value = SCALER_REGISTRY.get(self.scaler["func"])(
+            real_value, **self.scaler["args"])
+        
+        for metric_name, metric_func in self.metrics.items():
+            if self.evaluate_on_gpu:
+                metric_item = self.metric_forward(metric_func, [prediction, real_value])
+            else:
+                metric_item = self.metric_forward(metric_func, [prediction.detach().cpu(), real_value.detach().cpu()])
+            self.update_epoch_meter("test_"+metric_name, metric_item.item())
+            
+    

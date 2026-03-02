@@ -22,6 +22,8 @@ def masked_mse(preds: torch.Tensor, labels: torch.Tensor, null_val: float = np.n
     mask = mask.float()
     mask /= torch.mean((mask))
     mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
+    if(preds.shape!=labels.shape):
+         preds = torch.squeeze(preds,dim=-1)
     loss = (preds-labels)**2
     loss = loss * mask
     loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)

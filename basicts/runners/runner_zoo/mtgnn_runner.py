@@ -12,6 +12,10 @@ class MTGNNRunner(BaseTimeSeriesForecastingRunner):
         self.forward_features = cfg["MODEL"].get("FORWARD_FEATURES", None)
         self.target_features = cfg["MODEL"].get("TARGET_FEATURES", None)
         # graph training
+        if cfg.get("StartTest",False):
+            self.ckpt_save_dir2 = self.ckpt_save_dir 
+            self.ckpt_save_dir = cfg.StartTest.ckpt_save_dir
+
         self.step_size = cfg.TRAIN.CUSTOM.STEP_SIZE
         self.num_nodes = cfg.TRAIN.CUSTOM.NUM_NODES
         self.num_split = cfg.TRAIN.CUSTOM.NUM_SPLIT
@@ -76,9 +80,9 @@ class MTGNNRunner(BaseTimeSeriesForecastingRunner):
         assert list(prediction_data.shape)[:3] == [
             batch_size, seq_len, num_nodes], "error shape of the output, edit the forward function to reshape it to [B, L, N, C]"
         # post process
-        prediction = self.select_target_features(prediction_data)
+        # prediction = self.select_target_features(prediction_data)
         real_value = self.select_target_features(future_data)
-        return prediction, real_value
+        return prediction_data, real_value
 
     def train_iters(self, epoch: int, iter_index: int, data: Union[torch.Tensor, Tuple]) -> torch.Tensor:
         """It must be implement to define training detail.

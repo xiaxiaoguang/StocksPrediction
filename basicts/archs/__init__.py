@@ -16,12 +16,20 @@ from .arch_zoo.fedformer_arch import FEDformer
 from .arch_zoo.informer_arch import Informer, InformerStack
 from .arch_zoo.pyraformer_arch import Pyraformer
 from .arch_zoo.megacrn import MegaCRN
+from .arch_zoo.stdmae_arch import Mask,STDMAE
+from .arch_zoo.astgcn_arch import ASTGCN
+from .arch_zoo.iTransformer_arch import iTransformer
+from .arch_zoo.imamba_arch import imamba
+from .arch_zoo.mamba_arch import mamba,mamba2,mamba3
+from .arch_zoo.numerion_arch import Numerion
 
-__all__ = ["STID", "GraphWaveNet", "DCRNN",
+__all__ = ["STID", "GraphWaveNet", "DCRNN", 
            "D2STGNN", "STGCN", "MTGNN",
            "STNorm", "AGCRN", "StemGNN",
            "GTS", "DGCRN", "Linear",
            "DLinear", "NLinear", "Autoformer",
            "HINetwork", "FEDformer", "Informer",
            "InformerStack", "Pyraformer",
-           "MegaCRN"]
+           "MegaCRN","STDMAE","ASTGCN","Mask",
+           "iTransformer","imamba","mamba","mamba2","mamba3"
+           "Numerion", ]

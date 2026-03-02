@@ -1,0 +1,44 @@
+from torch import nn
+
+class PatchEmbedding(nn.Module):
+    """Patchify time series."""
+
+    def __init__(self, patch_size, in_channel, embed_dim, norm_layer, num_feats = 45):
+        super().__init__()
+        self.output_channel = embed_dim
+        mid_dim = 16
+        self.patch = patch_size
+        self.num = num = len(patch_size)
+        self.device='cuda:0'
+        self.embedding = []
+        self.outputlayer = nn.Conv2d(in_channel,self.output_channel,kernel_size=(1,num_feats),device=self.device)
+        for i in range(num):
+            tmp = nn.Sequential(
+                (nn.Conv2d(in_channel,mid_dim,kernel_size=(1,1),device=self.device)),
+                (nn.ReLU()),
+                (nn.Conv2d(mid_dim ,mid_dim, kernel_size=(patch_size[i],1),stride=(patch_size[i],1),device=self.device)),
+                (nn.BatchNorm2d(mid_dim,device=self.device)),
+                (nn.ReLU()),
+                (nn.Conv2d(mid_dim ,in_channel, kernel_size=(1,1),device=self.device)),
+                (nn.ReLU())
+            )
+            self.embedding.append(tmp)
+
+    def forward(self, long_term_history):
+        """
+        Args:
+            long_term_history (torch.Tensor): Very long-term historical MTS with shape [B, N, 1, P * L],
+                                                which is used in the TSFormer.
+                                                P is the number of segments (patches).
+
+        Returns:
+            torch.Tensor: patchified time series with shape [B, N, d, P]
+        """
+        batch_size, num_nodes, num_feat, len_time_series = long_term_history.shape
+        long_term_history = long_term_history.unsqueeze(-1)
+        long_term_history = long_term_history.reshape(batch_size*num_nodes, 1, len_time_series, num_feat)
+        output = []
+        for layer_patch in self.embedding:
+            long_term_history = layer_patch(long_term_history)
+            output.append(self.outputlayer(long_term_history).squeeze(-1).view(batch_size, num_nodes, self.output_channel, -1))
+        return output

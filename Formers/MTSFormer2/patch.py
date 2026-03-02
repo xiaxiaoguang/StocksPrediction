@@ -1,0 +1,74 @@
+from torch import nn
+
+class PatchEmbedding(nn.Module):
+    """Patchify time series."""
+
+    def __init__(self, patch_sizeA , patch_sizeB, in_channel, embed_dim, norm_layer,num_feats = 45):
+        super().__init__()
+        self.output_channel = embed_dim
+        self.patch1 = patch_sizeA
+        self.patch2 = patch_sizeB
+        self.input_channel = in_channel
+
+        mid_dim = embed_dim // 2
+
+        self.week_embedding = nn.ModuleList()
+        self.week_embedding.append(nn.Conv2d(in_channel,mid_dim,
+                                            kernel_size=(1, num_feats),stride=(1, 1)))
+        self.week_embedding.append(nn.Mish())
+        self.week_embedding.append(nn.BatchNorm2d(mid_dim)) # try InstanceNorm2d / LayerNorm2d
+
+        self.week_embedding.append(nn.Conv2d(mid_dim,mid_dim,
+                                            kernel_size=(patch_sizeA,1),stride=(patch_sizeA, 1)))
+        self.week_embedding.append(nn.Mish())
+        self.week_embedding.append(nn.BatchNorm2d(mid_dim)) # try InstanceNorm2d / LayerNorm2d
+        
+        self.week_out_layer = nn.Conv2d(mid_dim,embed_dim,
+                                                kernel_size=(1,1),stride=(1, 1))
+        # self.week_activate = nn.Tanh()
+        self.month_in_layer = nn.Conv2d(mid_dim,mid_dim,
+                                                kernel_size=(1,1),stride=(1,1))
+        self.month_activate = nn.Mish()
+
+        self.month_embedding = nn.ModuleList()
+        self.month_embedding.append(nn.Conv2d(mid_dim,mid_dim,
+                                                kernel_size=(patch_sizeB,1),stride=(patch_sizeB,1)))
+        self.month_embedding.append(nn.Mish())
+        self.month_embedding.append(nn.BatchNorm2d(mid_dim)) # try InstanceNorm2d / LayerNorm2d
+        
+        self.month_embedding.append(nn.Conv2d(mid_dim,embed_dim,
+                                                kernel_size=(1,1),stride=(1,1)))
+        self.norm_layer = norm_layer if norm_layer is not None else nn.Identity()
+
+    def forward(self, long_term_history):
+        """
+        Args:
+            long_term_history (torch.Tensor): Very long-term historical MTS with shape [B, N, 1, P * L],
+                                                which is used in the TSFormer.
+                                                P is the number of segments (patches).
+
+        Returns:
+            torch.Tensor: patchified time series with shape [B, N, d, P]
+        """
+        batch_size, num_nodes, num_feat, len_time_series = long_term_history.shape
+        long_term_history = long_term_history.unsqueeze(-1)
+        long_term_history = long_term_history.reshape(batch_size*num_nodes, 1, len_time_series, num_feat)
+
+        for layers in self.week_embedding:
+                long_term_history = layers(long_term_history)
+
+        week_data = self.week_out_layer(long_term_history)
+        
+        residual = self.month_activate(self.month_in_layer(long_term_history)) # residual connection
+        long_term_history = self.norm_layer(long_term_history + residual)
+
+        for layers in self.month_embedding:
+             long_term_history = layers(long_term_history)
+
+        month_data = long_term_history
+
+        week_data = week_data.squeeze(-1).view(batch_size, num_nodes, self.output_channel, -1)    # B, N, d, P
+        assert week_data.shape[-1] == len_time_series // self.patch1
+        month_data = month_data.squeeze(-1).view(batch_size,num_nodes,self.output_channel, -1)
+        assert month_data.shape[-1] == week_data.shape[-1] // self.patch2
+        return week_data,month_data

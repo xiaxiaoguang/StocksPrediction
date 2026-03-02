@@ -35,7 +35,8 @@ class TokenEmbedding(nn.Module):
                 nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='leaky_relu')
 
     def forward(self, x):
-        x = self.tokenConv(x.permute(0, 2, 1)).transpose(1, 2)
+        breakpoint()
+        x = self.tokenConv(x).transpose(1,2)
         return x
 
 
@@ -126,6 +127,7 @@ class DataEmbedding_wo_pos(nn.Module):
     def forward(self, x, x_mark):
         value_embed = self.value_embedding(x)
         temp_embed = self.temporal_embedding(x_mark)
+        breakpoint()
         x = value_embed + temp_embed
 
         return self.dropout(x)

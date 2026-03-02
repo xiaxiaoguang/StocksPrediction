@@ -1,4 +1,5 @@
 import math
+import os
 import functools
 from typing import Tuple, Union, Optional
 
@@ -9,7 +10,8 @@ from easytorch.utils.dist import master_only
 from .base_runner import BaseRunner
 from ..data import SCALER_REGISTRY
 from ..utils import load_pkl
-from ..metrics import masked_mae, masked_mape, masked_rmse
+from ..metrics import *
+from torch.utils.tensorboard import SummaryWriter
 
 
 class BaseTimeSeriesForecastingRunner(BaseRunner):
@@ -26,6 +28,7 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
 
     def __init__(self, cfg: dict):
         super().__init__(cfg)
+
         self.dataset_name = cfg["DATASET_NAME"]
         # different datasets have different null_values, e.g., 0.0 or np.nan.
         self.null_val = cfg["TRAIN"].get("NULL_VAL", np.nan)    # consist with metric functions
@@ -46,8 +49,10 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
             self.prediction_length = cfg.TRAIN.CL.get("PREDICTION_LENGTH")
             self.cl_step_size = cfg.TRAIN.CL.get("STEP_SIZE", 1)
         # evaluation horizon
-        self.evaluation_horizons = [_ - 1 for _ in cfg["TEST"].get("EVALUATION_HORIZONS", range(1, 13))]
+        self.predlen = cfg["DATASET_OUTPUT_LEN"]
+        self.evaluation_horizons = [_ - 1 for _ in cfg["TEST"].get("EVALUATION_HORIZONS", range(1, self.predlen+1))]
         assert min(self.evaluation_horizons) >= 0, "The horizon should start counting from 0."
+
 
     def init_training(self, cfg: dict):
         """Initialize training.
@@ -61,6 +66,18 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
         super().init_training(cfg)
         for key, _ in self.metrics.items():
             self.register_epoch_meter("train_"+key, "train", "{:.4f}")
+        if cfg.get("StartTest",False):
+
+            if cfg.StartTest.get("test_line",False):
+                self.test_line(cfg)
+                self.num_epochs = 0
+            elif cfg.StartTest.get("test_whole",False):
+                self.test_whole(cfg)
+                self.num_epochs = 0
+            else :
+                # self.validate(cfg)
+                self.test_process(cfg)
+                self.num_epochs = 0
 
     def init_validation(self, cfg: dict):
         """Initialize validation.
@@ -100,14 +117,20 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
 
         data_file_path = "{0}/data_in{1}_out{2}.pkl".format(cfg["TRAIN"]["DATA"]["DIR"], cfg["DATASET_INPUT_LEN"], cfg["DATASET_OUTPUT_LEN"])
         index_file_path = "{0}/index_in{1}_out{2}.pkl".format(cfg["TRAIN"]["DATA"]["DIR"], cfg["DATASET_INPUT_LEN"], cfg["DATASET_OUTPUT_LEN"])
-
+        label_file_path = "{0}/label_in{1}_out{2}.pkl".format(cfg["TRAIN"]["DATA"]["DIR"], cfg["DATASET_INPUT_LEN"], cfg["DATASET_OUTPUT_LEN"])
         # build dataset args
         dataset_args = cfg.get("DATASET_ARGS", {})
         # three necessary arguments, data file path, corresponding index file path, and mode (train, valid, or test)
         dataset_args["data_file_path"] = data_file_path
         dataset_args["index_file_path"] = index_file_path
-        dataset_args["mode"] = "train"
 
+        if "StockD" in cfg["DATASET_NAME"]:
+            dataset_args["label_file_path"] = label_file_path
+        else :
+            dataset_args["label_file_path"] = None
+
+        dataset_args["mode"] = "train"
+        
         dataset = cfg["DATASET_CLS"](**dataset_args)
         print("train len: {0}".format(len(dataset)))
 
@@ -128,12 +151,18 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
         """
         data_file_path = "{0}/data_in{1}_out{2}.pkl".format(cfg["VAL"]["DATA"]["DIR"], cfg["DATASET_INPUT_LEN"], cfg["DATASET_OUTPUT_LEN"])
         index_file_path = "{0}/index_in{1}_out{2}.pkl".format(cfg["VAL"]["DATA"]["DIR"], cfg["DATASET_INPUT_LEN"], cfg["DATASET_OUTPUT_LEN"])
+        label_file_path = "{0}/label_in{1}_out{2}.pkl".format(cfg["VAL"]["DATA"]["DIR"], cfg["DATASET_INPUT_LEN"], cfg["DATASET_OUTPUT_LEN"])
 
         # build dataset args
         dataset_args = cfg.get("DATASET_ARGS", {})
         # three necessary arguments, data file path, corresponding index file path, and mode (train, valid, or test)
         dataset_args["data_file_path"] = data_file_path
         dataset_args["index_file_path"] = index_file_path
+
+        if "StockD" in cfg["DATASET_NAME"]:
+            dataset_args["label_file_path"] = label_file_path
+        else :
+            dataset_args["label_file_path"] = None        
         dataset_args["mode"] = "valid"
 
         dataset = cfg["DATASET_CLS"](**dataset_args)
@@ -154,12 +183,16 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
 
         data_file_path = "{0}/data_in{1}_out{2}.pkl".format(cfg["TEST"]["DATA"]["DIR"], cfg["DATASET_INPUT_LEN"], cfg["DATASET_OUTPUT_LEN"])
         index_file_path = "{0}/index_in{1}_out{2}.pkl".format(cfg["TEST"]["DATA"]["DIR"], cfg["DATASET_INPUT_LEN"], cfg["DATASET_OUTPUT_LEN"])
-
+        label_file_path = "{0}/label_in{1}_out{2}.pkl".format(cfg["TEST"]["DATA"]["DIR"], cfg["DATASET_INPUT_LEN"], cfg["DATASET_OUTPUT_LEN"])
         # build dataset args
         dataset_args = cfg.get("DATASET_ARGS", {})
         # three necessary arguments, data file path, corresponding index file path, and mode (train, valid, or test)
         dataset_args["data_file_path"] = data_file_path
         dataset_args["index_file_path"] = index_file_path
+        if "StockD" in cfg["DATASET_NAME"]:
+            dataset_args["label_file_path"] = label_file_path
+        else :
+            dataset_args["label_file_path"] = None
         dataset_args["mode"] = "test"
 
         dataset = cfg["DATASET_CLS"](**dataset_args)
@@ -176,7 +209,6 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
         Returns:
             int: task level
         """
-
         if epoch is None:
             return self.prediction_length
         epoch -= 1
@@ -187,6 +219,7 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
         else:
             _ = ((epoch - self.warm_up_epochs) // self.cl_epochs + 1) * self.cl_step_size
             cl_length = min(_, self.prediction_length)
+
         return cl_length
 
     def forward(self, data: tuple, epoch: int = None, iter_num: int = None, train: bool = True, **kwargs) -> tuple:
@@ -233,7 +266,6 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
         Returns:
             loss (torch.Tensor)
         """
-
         iter_num = (epoch-1) * self.iter_per_epoch + iter_index
         forward_return = list(self.forward(data=data, epoch=epoch, iter_num=iter_num, train=True))
         # re-scale data
@@ -247,9 +279,11 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
         else:
             forward_return[0] = prediction_rescaled
             forward_return[1] = real_value_rescaled
+
         loss = self.metric_forward(self.loss, forward_return)
         # metrics
         for metric_name, metric_func in self.metrics.items():
+
             metric_item = self.metric_forward(metric_func, forward_return[:2])
             self.update_epoch_meter("train_"+metric_name, metric_item.item())
         return loss
@@ -269,6 +303,7 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
         real_value_rescaled = SCALER_REGISTRY.get(self.scaler["func"])(forward_return[1], **self.scaler["args"])
         # metrics
         for metric_name, metric_func in self.metrics.items():
+
             metric_item = self.metric_forward(metric_func, [prediction_rescaled, real_value_rescaled])
             self.update_epoch_meter("val_"+metric_name, metric_item.item())
 
@@ -280,7 +315,6 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
         Args:
             train_epoch (int, optional): current epoch if in training process.
         """
-
         # test loop
         prediction = []
         real_value = []
@@ -288,6 +322,7 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
             forward_return = self.forward(data, epoch=None, iter_num=None, train=False)
             prediction.append(forward_return[0])        # preds = forward_return[0]
             real_value.append(forward_return[1])        # testy = forward_return[1]
+
         prediction = torch.cat(prediction, dim=0)
         real_value = torch.cat(real_value, dim=0)
         # re-scale data
@@ -303,12 +338,15 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
             real = real_value[:, i, :, :]
             # metrics
             metric_repr = ""
-            for metric_name, metric_func in self.metrics.items():
-                metric_item = self.metric_forward(metric_func, [pred, real])
-                metric_repr += ", Test {0}: {1:.4f}".format(metric_name, metric_item.item())
+            for metric_name, metric_func in self.metrics.items(): 
+                if metric_name == "MAE" or metric_name == "RMSE" or metric_name == "MAPE":
+                    metric_item = self.metric_forward(metric_func, [pred, real])
+                    metric_repr += ", Test {0}: {1:.4f}".format(metric_name, metric_item.item())
             log = "Evaluate best model on test data for horizon {:d}" + metric_repr
             log = log.format(i+1)
             self.logger.info(log)
+        
+
         # test performance overall
         for metric_name, metric_func in self.metrics.items():
             if self.evaluate_on_gpu:
@@ -316,6 +354,116 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
             else:
                 metric_item = self.metric_forward(metric_func, [prediction.detach().cpu(), real_value.detach().cpu()])
             self.update_epoch_meter("test_"+metric_name, metric_item.item())
+            
+
+    @torch.no_grad()
+    @master_only
+    def test_whole(self,cfg: dict = None):
+        """Evaluate the ? days return rate.
+        """
+        self.init_test(cfg)
+        # print(self.ckpt_save_dir,self.ckpt_save_dir2)
+        tensorboard_writer = SummaryWriter(os.path.join(self.ckpt_save_dir2, 'tensorboard'))
+        self.model.eval()
+        # test loop
+        # self.register_epoch_meter("test2_whole_return", "test2", "{:.3f} ($)", plt=False)
+        # self.register_epoch_meter("test2_whole_hand", "test2", "{:.3f} ($)", plt=False)
+        handvalue = torch.ones((1,),dtype=torch.float)
+        lst_inv = torch.zeros((self.predlen,),dtype=torch.float)
+        lst_ret = torch.zeros((self.predlen,),dtype=torch.float)
+        K = 4
+        handvalue = self.to_running_device(handvalue)
+        lst_ret = self.to_running_device(lst_ret)
+        lst_inv = self.to_running_device(lst_inv)
+
+        dataloader = self.test_data_loader
+        if cfg.StartTest.get("UseTrain",False):
+            print("Mention : Use training data to test")           
+            dataloader = self.train_data_loader
+        elif cfg.StartTest.get("UseValid",False):
+            print("MENTION:Use validation data to test")
+            self.init_validation(cfg)
+            dataloader = self.val_data_loader
+
+        maxL = dataloader.__len__() // 15
+        total_investment = []
+
+        for nowi, data in enumerate(dataloader):
+            forward_return = self.forward(data, epoch=None, iter_num=None, train=False)
+            lst_pre = forward_return[0]
+            lst_rel = forward_return[1]
+
+            total_investment.append(lst_ret[0] - lst_inv[0])
+            handvalue += lst_ret[0]
+            
+            if cfg.StartTest.get("RandomSelect",False):
+                ret = RndReturn(50)(lst_pre,lst_rel)
+                our_ret = max(ret.unsqueeze(-1),1) * (handvalue / K)
+            else :
+                if cfg.StartTest.get("AllowShort",True):
+                    ret = predReturn_Short(20)(lst_pre,lst_rel)
+                else :
+                    ret = predReturn(20)(lst_pre,lst_rel)
+                    
+                our_ret = ret.unsqueeze(-1) * (handvalue / K)
+
+            lst_ret = torch.cat((lst_ret[1:],our_ret),dim=0)
+            lst_inv = torch.cat((lst_inv[1:],(handvalue / K)),dim=0)
+            handvalue -= (handvalue / K)
+
+            tensorboard_writer.add_scalar("test2_whole_return", (handvalue + torch.sum(lst_ret)).item(), nowi)
+            tensorboard_writer.add_scalar("test2_whole_hand", handvalue.item(), nowi)
+            if nowi % maxL == 0:
+                with open(self.ckpt_save_dir+"/rc.txt","a") as f : 
+                    print(f"Now {nowi}/{maxL*20} we have {(handvalue + torch.sum(lst_ret)).item()}")
+                    print(f"Now {nowi}/{maxL*20} we have {(handvalue + torch.sum(lst_ret)).item()}",file=f)
+        
+        total_investment = torch.tensor(total_investment)
+        sr = total_investment.mean()/torch.sqrt(total_investment.var())
+        with open(self.ckpt_save_dir+"/rc.txt","a") as f :  #这个会复制粘贴到奇怪的地方去
+            print(f"Finally we have {(handvalue + torch.sum(lst_ret)).item()}, sr rate is {sr}")
+            print(f"Finally we have {(handvalue + torch.sum(lst_ret)).item()}, sr rate is {sr}",file=f)
+
+        self.tensorboard_writer.close()
+
+    @torch.no_grad()
+    @master_only
+    def test_line(self,cfg: dict = None):
+        self.init_test(cfg)
+        # print(self.ckpt_save_dir,self.ckpt_save_dir2)
+        tensorboard_writer = SummaryWriter(os.path.join(self.ckpt_save_dir2, 'tensorboard'))
+        self.model.eval()
+        dataloader = self.test_data_loader
+        
+        if cfg.StartTest.get("UseTrain",False):
+            dataloader = self.train_data_loader
+            print("Mention : Use training data to test")  
+        elif cfg.StartTest.get("UseValid",False):
+            print("MENTION:Use validation data to test")
+            self.init_validation(cfg)
+            dataloader = self.val_data_loader
+
+        maxL = dataloader.__len__() // 15
+        tag = cfg.StartTest.get("select",0)
+        for nowi, data in enumerate(dataloader):
+            forward_return = self.forward(data, epoch=None, iter_num=None, train=False)
+            
+            prel = data[0].shape[1]
+            numn = data[0].shape[2]
+
+            lst_pre = forward_return[0].reshape(numn,prel)# 这里必须保证forward_return第三维是0
+            lst_rel = forward_return[1].reshape(numn,prel)
+
+            for i in tag:
+                NV = data[0][0,0,i,-1]
+                PV = data[1][0,-1,i,-1]
+                tensorboard_writer.add_scalars(f"test3_value_tag{i}",  {'real': NV,'pred':PV * (1 + lst_pre[i][0])} , nowi)
+                # tensorboard_writer.add_scalar(f"test3_value_tag{i}", , nowi)
+                if nowi % maxL == 0:
+                    print(f"Now {nowi}/{maxL*20} and tag {i} we have pred {PV * (1 + lst_pre[i][0])}, real {NV}, Predicted pct_chg {lst_pre[i][0]} , real {lst_rel[i][0]}")
+
+            # tensorboard_writer.add_scalar("test3_pred_value", lst_rel[tag][0].item(), nowi)
+        self.tensorboard_writer.close()
 
     @master_only
     def on_validating_end(self, train_epoch: Optional[int]):

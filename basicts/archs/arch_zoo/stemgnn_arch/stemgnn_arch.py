@@ -112,7 +112,8 @@ class StemGNN(nn.Module):
         - The experimental setting is not fair in StemGNN, and we can not reproduce the paper's performance.
     """
 
-    def __init__(self, units, stack_cnt, time_step, multi_layer, horizon, dropout_rate=0.5, leaky_rate=0.2, **kwargs):
+    def __init__(self, units, stack_cnt, time_step, multi_layer,
+                  horizon, dropout_rate=0.5, leaky_rate=0.2, **kwargs):
         super(StemGNN, self).__init__()
         self.unit = units
         self.stack_cnt = stack_cnt
@@ -136,6 +137,13 @@ class StemGNN(nn.Module):
         )
         self.leakyrelu = nn.LeakyReLU(self.alpha)
         self.dropout = nn.Dropout(p=dropout_rate)
+        self.MLP = nn.Sequential(
+            nn.Linear(45,50),
+            nn.ReLU(),
+            nn.Linear(50,50),
+            nn.ReLU(),
+            nn.Linear(50,1)
+        )
 
     def get_laplacian(self, graph, normalize):
         if normalize:
@@ -201,8 +209,7 @@ class StemGNN(nn.Module):
         Returns:
             torch.Tensor: [B, L, N, 1]
         """
-
-        x = history_data[..., 0]
+        x = self.MLP(history_data).squeeze(-1)
         mul_L, attention = self.latent_correlation_layer(x)
         X = x.unsqueeze(1).permute(0, 1, 3, 2).contiguous()
         result = []
@@ -211,4 +218,6 @@ class StemGNN(nn.Module):
             result.append(forecast)
         forecast = result[0] + result[1]
         forecast = self.fc(forecast)
-        return forecast.permute(0, 2, 1).contiguous().unsqueeze(-1)
+        forecast = forecast.permute(0, 2, 1).contiguous().unsqueeze(-1)
+        forecast = torch.cat((forecast,forecast),dim=3)
+        return forecast

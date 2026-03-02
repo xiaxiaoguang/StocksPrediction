@@ -57,6 +57,7 @@ def data_transformation_4_xformer(history_data: torch.Tensor, future_data: torch
         # get the corresponding x_mark_dec
         x_mark_dec = future_data[..., :, 0, 1:]                 # B, L2, C-1
         x_mark_dec = date_normalize(x_mark_dec, time_of_day_size, day_of_week_size, day_of_month_size, day_of_year_size)
+        
         return x_enc, x_mark_enc, x_dec, x_mark_dec
     else:
         x_dec_token = x_enc[:, -start_token_len:, :]            # B, start_token_length, N

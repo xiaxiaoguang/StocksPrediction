@@ -49,11 +49,13 @@ class CausalConv2d(nn.Conv2d):
         kernel_size = nn.modules.utils._pair(kernel_size)
         stride = nn.modules.utils._pair(stride)
         dilation = nn.modules.utils._pair(dilation)
+
         if enable_padding == True:
             self.__padding = [int((kernel_size[i] - 1) * dilation[i])
                               for i in range(len(kernel_size))]
         else:
             self.__padding = 0
+
         self.left_padding = nn.modules.utils._pair(self.__padding)
         super(CausalConv2d, self).__init__(in_channels, out_channels, kernel_size,
                                            stride=stride, padding=0, dilation=dilation, groups=groups, bias=bias)
@@ -166,9 +168,7 @@ class ChebGraphConv(nn.Module):
     def forward(self, x):
         #bs, c_in, ts, n_vertex = x.shape
         x = torch.permute(x, (0, 2, 3, 1))
-
         self.gso = self.gso.to(x.device)
-
         if self.Ks - 1 < 0:
             raise ValueError(
                 f'ERROR: the graph convolution kernel size Ks has to be a positive integer, but received {self.Ks}.')
@@ -182,6 +182,7 @@ class ChebGraphConv(nn.Module):
         elif self.Ks - 1 >= 2:
             x_0 = x
             x_1 = torch.einsum('hi,btij->bthj', self.gso, x)
+
             x_list = [x_0, x_1]
             for k in range(2, self.Ks):
                 x_list.append(torch.einsum('hi,btij->bthj', 2 *

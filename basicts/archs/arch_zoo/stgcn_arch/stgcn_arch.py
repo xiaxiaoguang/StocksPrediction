@@ -3,7 +3,6 @@ import torch.nn as nn
 
 from .stgcn_layers import STConvBlock, OutputBlock
 
-
 class STGCNChebGraphConv(nn.Module):
     """
     Paper: Spatio-Temporal Graph Convolutional Networks: A Deep Learning Framework for Trafﬁc Forecasting
@@ -35,18 +34,21 @@ class STGCNChebGraphConv(nn.Module):
     # F: Fully-Connected Layer
     # F: Fully-Connected Layer
 
-    def __init__(self, Kt, Ks, blocks, T, n_vertex, act_func, graph_conv_type, gso, bias, droprate):
+    def __init__(self, Kt, Ks, blocks, T, n_vertex, seq_len, act_func, graph_conv_type, bias, droprate):
         super(STGCNChebGraphConv, self).__init__()
         modules = []
+        gso = nn.Parameter(torch.randn((n_vertex,n_vertex)))
         for l in range(len(blocks) - 3):
             modules.append(STConvBlock(
                 Kt, Ks, n_vertex, blocks[l][-1], blocks[l+1], act_func, graph_conv_type, gso, bias, droprate))
         self.st_blocks = nn.Sequential(*modules)
         Ko = T - (len(blocks) - 3) * 2 * (Kt - 1)
+        seq_len = seq_len - T + 1
         self.Ko = Ko
         assert Ko != 0, "Ko = 0."
         self.output = OutputBlock(
             Ko, blocks[-3][-1], blocks[-2], blocks[-1][0], n_vertex, act_func, bias, droprate)
+        self.lastPred = nn.Linear(seq_len,blocks[0][0])
 
     def forward(self, history_data: torch.Tensor, future_data: torch.Tensor, batch_seen: int, epoch: int, train: bool, **kwargs) -> torch.Tensor:
         """feedforward function of STGCN.
@@ -63,4 +65,6 @@ class STGCNChebGraphConv(nn.Module):
         x = self.output(x)
 
         x = x.transpose(2, 3)
+        x = self.lastPred(x)
+
         return x

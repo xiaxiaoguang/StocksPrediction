@@ -12,7 +12,12 @@ class MTGNN(nn.Module):
     Link: https://arxiv.org/abs/2005.11650
     """
 
-    def __init__(self, gcn_true, buildA_true, gcn_depth, num_nodes, predefined_A=None, static_feat=None, dropout=0.3, subgraph_size=20, node_dim=40, dilation_exponential=1, conv_channels=32, residual_channels=32, skip_channels=64, end_channels=128, seq_length=12, in_dim=2, out_dim=12, layers=3, propalpha=0.05, tanhalpha=3, layer_norm_affline=True):
+    def __init__(self, gcn_true, buildA_true, gcn_depth, num_nodes,
+                  predefined_A=None, static_feat=None, dropout=0.3, subgraph_size=20,
+                    node_dim=40, dilation_exponential=1, conv_channels=32, residual_channels=32,
+                      skip_channels=64, end_channels=128, seq_length=144, in_dim=45,
+                        out_dim=12, layers=3, propalpha=0.05, tanhalpha=3,out_feature=2,
+                          layer_norm_affline=True):
         super(MTGNN, self).__init__()
         self.gcn_true = gcn_true
         self.buildA_true = buildA_true
@@ -111,6 +116,8 @@ class MTGNN(nn.Module):
             torch.Tensor: prediction
         """
         # select feature
+        # breakpoint()
+
         history_data = history_data.transpose(1, 3).contiguous()
         seq_len = history_data.size(3)
         assert seq_len == self.seq_length, 'input sequence length not equal to preset sequence length'
@@ -131,6 +138,7 @@ class MTGNN(nn.Module):
         x = self.start_conv(history_data)
         skip = self.skip0(
             F.dropout(history_data, self.dropout, training=self.training))
+        
         for i in range(self.layers):
             residual = x
             filter = self.filter_convs[i](x)
@@ -154,6 +162,7 @@ class MTGNN(nn.Module):
             else:
                 x = self.norm[i](x, idx)
         # print(x.shape)
+        # breakpoint()
         skip = self.skipE(x) + skip
         # print(skip.shape)
         x = F.relu(skip)
@@ -161,5 +170,4 @@ class MTGNN(nn.Module):
         # print(x.shape)
         x = self.end_conv_2(x)
         # print(x.shape)
-
         return x

@@ -27,7 +27,7 @@ CFG.DATASET_OUTPUT_LEN = 12
 CFG.DATASET_ARGS = {
     "seq_len": 288 * 7
     }
-CFG.GPU_NUM = 2
+CFG.GPU_NUM = 1
 
 # ================= environment ================= #
 CFG.ENV = EasyDict()
@@ -80,8 +80,10 @@ CFG.MODEL.PARAM = {
                 "output_seq_len": CFG.DATASET_OUTPUT_LEN
     }
 }
+# 前向传递的特征和后向传递的特征
 CFG.MODEL.FORWARD_FEATURES = [0, 1, 2]
 CFG.MODEL.TARGET_FEATURES = [0]
+
 CFG.MODEL.DDP_FIND_UNUSED_PARAMETERS = True
 
 # ================= optim ================= #

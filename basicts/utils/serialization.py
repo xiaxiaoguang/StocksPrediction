@@ -15,10 +15,10 @@ def load_pkl(pickle_file: str) -> object:
     Returns:
         object: loaded objected
     """
-
     try:
         with open(pickle_file, "rb") as f:
             pickle_data = pickle.load(f)
+            # breakpoint()
     except UnicodeDecodeError:
         with open(pickle_file, "rb") as f:
             pickle_data = pickle.load(f, encoding="latin1")
@@ -79,6 +79,14 @@ def load_adj(file_path: str, adj_type: str):
         assert error, "adj type not defined"
     return adj, adj_mx
 
+
+def load_pre_trained_model(model,pre_trained_path):
+    """Load pre-trained model"""
+    checkpoint_dict = torch.load(pre_trained_path)
+    model.load_state_dict(checkpoint_dict["model_state_dict"])
+    # freeze parameters
+    for param in model.parameters():
+            param.requires_grad = False
 
 def load_node2vec_emb(file_path: str) -> torch.Tensor:
     """load node2vec embedding
