@@ -1,5 +1,6 @@
 checkpoints/
 datasets/
 ZRecord/
-implement/
+application/
+test/
 *.zip

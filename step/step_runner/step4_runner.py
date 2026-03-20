@@ -1,7 +1,7 @@
 import torch
 
 from basicts.runners import BaseTimeSeriesForecastingRunner
-from basicts.metrics import masked_mae, masked_rmse, masked_mape,returnLAM,BstR,RndR,\
+from basicts.losses import masked_mae, masked_rmse, masked_mape,returnLAM,BstR,RndR,\
     PredR,AvgR,RightOrder,bstReturn,predReturn,RndReturn,PLKLoss,MRLoss,successK,MDLoss
 
 
@@ -9,7 +9,6 @@ class STEP4Runner(BaseTimeSeriesForecastingRunner):
     def __init__(self, cfg: dict):
         super().__init__(cfg)
         self.metrics = cfg.get("METRICS", {"MAE": masked_mae, "RMSE": masked_rmse, "MAPE": masked_mape , 
-                                           "ReturnLAM":returnLAM,"MRLoss":MRLoss,"MDLoss":MDLoss,
                                            "Average_Return":AvgR,
                                            "Best_Return_10":bstReturn(10),"Our_Return_10":predReturn(10),
                                            "Random_Return_10":RndReturn(10),"Success_rate_10":successK(10),

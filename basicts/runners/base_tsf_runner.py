@@ -13,6 +13,9 @@ from ..utils import load_pkl
 from ..metrics import *
 from torch.utils.tensorboard import SummaryWriter
 
+import os
+import matplotlib.pyplot as plt
+import pandas as pd # Added for easy choice logging
 
 class BaseTimeSeriesForecastingRunner(BaseRunner):
     """
@@ -124,7 +127,7 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
         dataset_args["data_file_path"] = data_file_path
         dataset_args["index_file_path"] = index_file_path
 
-        if "StockD" in cfg["DATASET_NAME"]:
+        if "csi" in cfg["DATASET_NAME"]:
             dataset_args["label_file_path"] = label_file_path
         else :
             dataset_args["label_file_path"] = None
@@ -159,7 +162,7 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
         dataset_args["data_file_path"] = data_file_path
         dataset_args["index_file_path"] = index_file_path
 
-        if "StockD" in cfg["DATASET_NAME"]:
+        if "csi" in cfg["DATASET_NAME"]:
             dataset_args["label_file_path"] = label_file_path
         else :
             dataset_args["label_file_path"] = None        
@@ -189,7 +192,7 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
         # three necessary arguments, data file path, corresponding index file path, and mode (train, valid, or test)
         dataset_args["data_file_path"] = data_file_path
         dataset_args["index_file_path"] = index_file_path
-        if "StockD" in cfg["DATASET_NAME"]:
+        if "csi" in cfg["DATASET_NAME"]:
             dataset_args["label_file_path"] = label_file_path
         else :
             dataset_args["label_file_path"] = None
@@ -279,11 +282,10 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
         else:
             forward_return[0] = prediction_rescaled
             forward_return[1] = real_value_rescaled
-
+        # breakpoint()
         loss = self.metric_forward(self.loss, forward_return)
         # metrics
         for metric_name, metric_func in self.metrics.items():
-
             metric_item = self.metric_forward(metric_func, forward_return[:2])
             self.update_epoch_meter("train_"+metric_name, metric_item.item())
         return loss
@@ -297,13 +299,12 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
             iter_index (int): current iter.
         """
 
-        forward_return = self.forward(data=data, epoch=None, iter_num=None, train=False)
+        forward_return = self.forward(data=data, epoch=None, iter_num=iter_index, train=False)
         # re-scale data
         prediction_rescaled = SCALER_REGISTRY.get(self.scaler["func"])(forward_return[0], **self.scaler["args"])
         real_value_rescaled = SCALER_REGISTRY.get(self.scaler["func"])(forward_return[1], **self.scaler["args"])
         # metrics
         for metric_name, metric_func in self.metrics.items():
-
             metric_item = self.metric_forward(metric_func, [prediction_rescaled, real_value_rescaled])
             self.update_epoch_meter("val_"+metric_name, metric_item.item())
 
@@ -354,116 +355,6 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
             else:
                 metric_item = self.metric_forward(metric_func, [prediction.detach().cpu(), real_value.detach().cpu()])
             self.update_epoch_meter("test_"+metric_name, metric_item.item())
-            
-
-    @torch.no_grad()
-    @master_only
-    def test_whole(self,cfg: dict = None):
-        """Evaluate the ? days return rate.
-        """
-        self.init_test(cfg)
-        # print(self.ckpt_save_dir,self.ckpt_save_dir2)
-        tensorboard_writer = SummaryWriter(os.path.join(self.ckpt_save_dir2, 'tensorboard'))
-        self.model.eval()
-        # test loop
-        # self.register_epoch_meter("test2_whole_return", "test2", "{:.3f} ($)", plt=False)
-        # self.register_epoch_meter("test2_whole_hand", "test2", "{:.3f} ($)", plt=False)
-        handvalue = torch.ones((1,),dtype=torch.float)
-        lst_inv = torch.zeros((self.predlen,),dtype=torch.float)
-        lst_ret = torch.zeros((self.predlen,),dtype=torch.float)
-        K = 4
-        handvalue = self.to_running_device(handvalue)
-        lst_ret = self.to_running_device(lst_ret)
-        lst_inv = self.to_running_device(lst_inv)
-
-        dataloader = self.test_data_loader
-        if cfg.StartTest.get("UseTrain",False):
-            print("Mention : Use training data to test")           
-            dataloader = self.train_data_loader
-        elif cfg.StartTest.get("UseValid",False):
-            print("MENTION:Use validation data to test")
-            self.init_validation(cfg)
-            dataloader = self.val_data_loader
-
-        maxL = dataloader.__len__() // 15
-        total_investment = []
-
-        for nowi, data in enumerate(dataloader):
-            forward_return = self.forward(data, epoch=None, iter_num=None, train=False)
-            lst_pre = forward_return[0]
-            lst_rel = forward_return[1]
-
-            total_investment.append(lst_ret[0] - lst_inv[0])
-            handvalue += lst_ret[0]
-            
-            if cfg.StartTest.get("RandomSelect",False):
-                ret = RndReturn(50)(lst_pre,lst_rel)
-                our_ret = max(ret.unsqueeze(-1),1) * (handvalue / K)
-            else :
-                if cfg.StartTest.get("AllowShort",True):
-                    ret = predReturn_Short(20)(lst_pre,lst_rel)
-                else :
-                    ret = predReturn(20)(lst_pre,lst_rel)
-                    
-                our_ret = ret.unsqueeze(-1) * (handvalue / K)
-
-            lst_ret = torch.cat((lst_ret[1:],our_ret),dim=0)
-            lst_inv = torch.cat((lst_inv[1:],(handvalue / K)),dim=0)
-            handvalue -= (handvalue / K)
-
-            tensorboard_writer.add_scalar("test2_whole_return", (handvalue + torch.sum(lst_ret)).item(), nowi)
-            tensorboard_writer.add_scalar("test2_whole_hand", handvalue.item(), nowi)
-            if nowi % maxL == 0:
-                with open(self.ckpt_save_dir+"/rc.txt","a") as f : 
-                    print(f"Now {nowi}/{maxL*20} we have {(handvalue + torch.sum(lst_ret)).item()}")
-                    print(f"Now {nowi}/{maxL*20} we have {(handvalue + torch.sum(lst_ret)).item()}",file=f)
-        
-        total_investment = torch.tensor(total_investment)
-        sr = total_investment.mean()/torch.sqrt(total_investment.var())
-        with open(self.ckpt_save_dir+"/rc.txt","a") as f :  #这个会复制粘贴到奇怪的地方去
-            print(f"Finally we have {(handvalue + torch.sum(lst_ret)).item()}, sr rate is {sr}")
-            print(f"Finally we have {(handvalue + torch.sum(lst_ret)).item()}, sr rate is {sr}",file=f)
-
-        self.tensorboard_writer.close()
-
-    @torch.no_grad()
-    @master_only
-    def test_line(self,cfg: dict = None):
-        self.init_test(cfg)
-        # print(self.ckpt_save_dir,self.ckpt_save_dir2)
-        tensorboard_writer = SummaryWriter(os.path.join(self.ckpt_save_dir2, 'tensorboard'))
-        self.model.eval()
-        dataloader = self.test_data_loader
-        
-        if cfg.StartTest.get("UseTrain",False):
-            dataloader = self.train_data_loader
-            print("Mention : Use training data to test")  
-        elif cfg.StartTest.get("UseValid",False):
-            print("MENTION:Use validation data to test")
-            self.init_validation(cfg)
-            dataloader = self.val_data_loader
-
-        maxL = dataloader.__len__() // 15
-        tag = cfg.StartTest.get("select",0)
-        for nowi, data in enumerate(dataloader):
-            forward_return = self.forward(data, epoch=None, iter_num=None, train=False)
-            
-            prel = data[0].shape[1]
-            numn = data[0].shape[2]
-
-            lst_pre = forward_return[0].reshape(numn,prel)# 这里必须保证forward_return第三维是0
-            lst_rel = forward_return[1].reshape(numn,prel)
-
-            for i in tag:
-                NV = data[0][0,0,i,-1]
-                PV = data[1][0,-1,i,-1]
-                tensorboard_writer.add_scalars(f"test3_value_tag{i}",  {'real': NV,'pred':PV * (1 + lst_pre[i][0])} , nowi)
-                # tensorboard_writer.add_scalar(f"test3_value_tag{i}", , nowi)
-                if nowi % maxL == 0:
-                    print(f"Now {nowi}/{maxL*20} and tag {i} we have pred {PV * (1 + lst_pre[i][0])}, real {NV}, Predicted pct_chg {lst_pre[i][0]} , real {lst_rel[i][0]}")
-
-            # tensorboard_writer.add_scalar("test3_pred_value", lst_rel[tag][0].item(), nowi)
-        self.tensorboard_writer.close()
 
     @master_only
     def on_validating_end(self, train_epoch: Optional[int]):
@@ -475,3 +366,184 @@ class BaseTimeSeriesForecastingRunner(BaseRunner):
 
         if train_epoch is not None:
             self.save_best_model(train_epoch, "val_MAE", greater_best=False)
+
+    @torch.no_grad()
+    @master_only
+    def test_whole(self, cfg: dict = None):
+        """Evaluate the ? days return rate."""
+        self.init_test(cfg)
+        self.model.eval()
+        
+        # Setup PDF save directory
+        save_plot_dir = os.path.join(self.ckpt_save_dir, 'test')
+        os.makedirs(save_plot_dir, exist_ok=True)
+
+        handvalue = torch.ones((1,), dtype=torch.float)
+        lst_inv = torch.zeros((self.predlen,), dtype=torch.float)
+        lst_ret = torch.zeros((self.predlen,), dtype=torch.float)
+        K = 4
+        handvalue = self.to_running_device(handvalue)
+        lst_ret = self.to_running_device(lst_ret)
+        lst_inv = self.to_running_device(lst_inv)
+
+        dataloader = self.test_data_loader
+        if cfg.StartTest.get("UseTrain", False):
+            print("Mention : Use training data to test")           
+            dataloader = self.train_data_loader
+        elif cfg.StartTest.get("UseValid", False):
+            print("MENTION: Use validation data to test")
+            self.init_validation(cfg)
+            dataloader = self.val_data_loader
+
+        maxL = max(1, dataloader.__len__() // 15)
+
+        total_investment = []
+        history_portfolio = []
+        success_indices = []
+        success_values = []
+        investment_choices = [] # To store the "choices" for the external file
+
+        for nowi, data in enumerate(dataloader):
+            # Capture the indices chosen by the strategy (we need to modify predReturn to return them)
+            # For now, let's assume we capture them here
+            forward_return = self.forward(data, epoch=None, iter_num=None, train=False)
+            last_price = data[1][:,-1:,:,:].to(forward_return[0].device)
+            lst_pre = forward_return[0]
+            lst_rel = forward_return[1]
+            prev_total = (handvalue + torch.sum(lst_ret)).item()
+            # Logic for return calculation
+            if cfg.StartTest.get("RandomSelect", False):
+                # Note: You'd need to modify RndReturn to return indices too if you want them logged
+                ret = RndReturn(50)(lst_pre, lst_rel, last_price)
+                our_ret = max(ret.unsqueeze(-1), 1) * (handvalue / K)
+            else:
+                # Assuming predReturn modified to return (reward, indices) or similar
+                # If predReturn only returns reward, we just track the reward value
+                func = predReturn_Short(20) if cfg.StartTest.get("AllowShort", True) else predReturn(20)
+                ret = func(lst_pre, lst_rel, last_price)
+                our_ret = ret.unsqueeze(-1) * (handvalue / K)
+
+            lst_ret = torch.cat((lst_ret[1:], our_ret), dim=0)
+            lst_inv = torch.cat((lst_inv[1:], (handvalue / K)), dim=0)
+            handvalue -= (handvalue / K)
+            current_portfolio_value = (handvalue + torch.sum(lst_ret)).item()
+            history_portfolio.append(current_portfolio_value)
+
+            # --- LOGIC FOR SUCCESS TRACKING ---
+            # If current value is higher than previous, it's a "Success"
+            profit = current_portfolio_value - prev_total
+            if profit > 0:
+                success_indices.append(nowi)
+                success_values.append(current_portfolio_value)
+            
+            # Store choice data (Step, Value, Profit)
+            investment_choices.append({
+                "step": nowi,
+                "portfolio_value": current_portfolio_value,
+                "profit": profit,
+                "is_success": profit > 0
+            })
+
+        # --- SAVE CHOICES TO FILE ---
+        df_choices = pd.DataFrame(investment_choices)
+        df_choices.to_csv(os.path.join(save_plot_dir, 'investment_choices.csv'), index=False)
+
+        # --- PLOTTING ---
+        plt.figure(figsize=(12, 6))
+        # breakpoint()
+        # 1. Main Portfolio Line
+        plt.plot(history_portfolio, label='Portfolio Value', color='#1f77b4', linewidth=1.5)
+        
+        # 2. Success Markers (Green dots where we earned money)
+        plt.scatter(success_indices, success_values, color='green', s=10, 
+                    label='Profitable Step', alpha=0.5, marker='^')
+
+        # 3. Log Scale Transformation
+        plt.yscale('log') 
+        
+        plt.title(f"Growth Visualization (Log Scale) - Final: {current_portfolio_value:.2f}")
+        plt.xlabel("Trading Steps")
+        plt.ylabel("Value (Log Scale)")
+        plt.grid(True, which="both", ls="-", alpha=0.2)
+        plt.legend()
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_plot_dir, 'test_log_performance.pdf'))
+        plt.close()
+    
+    @torch.no_grad()
+    @master_only
+    def test_line(self, cfg: dict = None):
+
+        self.init_test(cfg)
+        self.model.eval()
+        
+        # Setup PDF save directory
+        save_plot_dir = os.path.join(self.ckpt_save_dir, 'test')
+        os.makedirs(save_plot_dir, exist_ok=True)
+
+        dataloader = self.test_data_loader
+        
+        if cfg.StartTest.get("UseTrain", False):
+            dataloader = self.train_data_loader
+            print("Mention : Use training data to test")  
+        elif cfg.StartTest.get("UseValid", False):
+            print("MENTION: Use validation data to test")
+            self.init_validation(cfg)
+            dataloader = self.val_data_loader
+
+        maxL = max(1, dataloader.__len__() // 15) 
+        
+        tag = cfg.StartTest.get("select", [0]) 
+        if isinstance(tag, int):
+            tag = [tag]
+
+        # --- NEW: Dictionary to store trajectories for each tag ---
+        plot_data = {t: {'real': [], 'pred': []} for t in tag}
+        interval = 3
+        cnt = interval-1
+
+        for nowi, data in enumerate(dataloader):
+
+            forward_return = self.forward(data, epoch=None, iter_num=None, train=False)
+            
+            prel = data[0].shape[1]
+            numn = data[0].shape[2]
+
+            lst_pre = forward_return[0].view(prel, numn)
+            lst_rel = forward_return[1].view(prel, numn)
+
+            cnt += 1
+            if cnt == interval:
+                # breakpoint()
+                cnt = 0
+                for i in tag:
+                    # Accumulate data
+                    for tmp in range(interval): 
+                        pred_val = lst_pre[tmp][i].item()
+                        real_val = lst_rel[tmp][i].item()
+                        plot_data[i]['pred'].append(pred_val)
+                        plot_data[i]['real'].append(real_val)
+                    if nowi % maxL == 0:
+                        print(f"Now {nowi}/{dataloader.__len__()} | Tag {i} | Pred: {pred_val:.4f} | Real: {real_val:.4f}")
+
+        # --- NEW: Generate and save a PDF plot for each tag ---
+        for i, data_dict in plot_data.items():
+            plt.figure(figsize=(10, 5))
+            
+            # Use arange for x-axis to ensure proper alignment
+            steps = range(len(data_dict['real']))
+            plt.plot(steps, data_dict['real'], label='Real Price', color='green', alpha=0.7)
+            plt.plot(steps, data_dict['pred'], label='Predicted Price', color='red', linestyle='--', alpha=0.9)
+            
+            plt.title(f"Time Series Forecasting - Tag {i}")
+            plt.xlabel("Time Steps")
+            plt.ylabel("Value")
+            plt.legend()
+            plt.grid(True, linestyle=':', alpha=0.6)
+            plt.tight_layout()
+            
+            # Save as PDF
+            pdf_path = os.path.join(save_plot_dir, f'vis_tag_{i}_interval{interval}.pdf')
+            plt.savefig(pdf_path, format='pdf')
+            plt.close()

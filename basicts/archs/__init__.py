@@ -21,7 +21,7 @@ from .arch_zoo.astgcn_arch import ASTGCN
 from .arch_zoo.iTransformer_arch import iTransformer
 from .arch_zoo.imamba_arch import imamba
 from .arch_zoo.mamba_arch import mamba,mamba2,mamba3
-from .arch_zoo.numerion_arch import Numerion
+from .arch_zoo.numerion_arch import Numerion,NumerionArgs
 
 __all__ = ["STID", "GraphWaveNet", "DCRNN", 
            "D2STGNN", "STGCN", "MTGNN",
@@ -32,4 +32,4 @@ __all__ = ["STID", "GraphWaveNet", "DCRNN",
            "InformerStack", "Pyraformer",
            "MegaCRN","STDMAE","ASTGCN","Mask",
            "iTransformer","imamba","mamba","mamba2","mamba3"
-           "Numerion", ]
+           "Numerion","NumerionArgs", ]

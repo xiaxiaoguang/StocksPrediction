@@ -202,8 +202,9 @@ class Numerion(nn.Module):
         self.output_layer_mean = nn.Linear(configs.pred_len,5)
         self.output_layer_var  = nn.Linear(configs.pred_len,5)
 
-    def forward(self, x):
+    def forward2(self, x):
         x = self.norm_layer(x, "norm")
+
         x = torch.permute(x, (0, 2, 1))
 
         if hasattr(self,'multi_level_patch_embed_layer'): 
@@ -224,20 +225,23 @@ class Numerion(nn.Module):
         if hasattr(self,'sedenion_layer'):
             se,se_real = self.sedenion_layer(x)
 
-        stack_real = torch.stack([re_real, bi_real,qu_real,oc_real,se_real],dim=-1)
-        
+        stack_real = torch.stack([re_real, bi_real, qu_real, oc_real, se_real],dim=-1)
+        # breakpoint()
         mean_stack = self.mean_fusion_layer(stack_real)
-        var_stack = self.var_fusion_layer(stack_real)
+        # var_stack = self.var_fusion_layer(stack_real)
         
         act_mean = nn.functional.softmax(self.output_layer_mean(mean_stack), dim=-1)
-        act_var = nn.functional.softmax(self.output_layer_var(var_stack), dim=-1)
+        # act_var = nn.functional.softmax(self.output_layer_var(var_stack), dim=-1)
         # breakpoint()
         mu = torch.sum(stack_real * act_mean, dim=-1)
-        sigma = torch.sum(stack_real * act_var, dim=-1)
-        sigma = nn.functional.softplus(sigma) + 1e-6  # Ensure positive
-
+        # sigma = torch.sum(stack_real * act_var, dim=-1)
+        # sigma = nn.functional.softplus(sigma) + 1e-6  # Ensure positive
         mu = torch.permute(mu, (0, 2, 1))
-        sigma = torch.permute(sigma, (0, 2, 1))
+        # sigma = torch.permute(sigma, (0, 2, 1))
         mu = self.norm_layer(mu, "denorm")
+        # return mu,sigma
+        return mu
 
-        return mu,sigma
+    def forward(self, history_data=None,future_data=None,batch_seen=None,epoch=None,train=None):
+        dec_out = self.forward2(history_data.squeeze(-1))
+        return dec_out[:, -self.configs.pred_len:, :].unsqueeze(-1)  # [B, L, D , 1]

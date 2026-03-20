@@ -7,27 +7,28 @@ import torch
 from easydict import EasyDict
 from basicts.utils.serialization import load_adj
 
-from basicts.archs import Numerion
+from basicts.archs import Numerion,NumerionArgs
 from basicts.runners import NumerionRunner
 from .step_loss import normal_loss
 from basicts.data import TimeSeriesForecastingDataset
 
-# @dataclass
-# class ModelArgs:
-#     seq_len : int
-#     n_layer : int
-#     input_dim: int
-#     pred_len: int
-#     d_model : list[int]
-#     dropout : int = 0.5
-#     patch_dim: int = 16
-#     patch_level: int = 4 
-#     device: str = 'cpu'
-#     def __post_init__(self):
-#         pass
-
 CFG = EasyDict()
-CFG.NOTE = {"CSI500 New Data with Latest Numerion"}
+CFG.NOTE = {"CSI500 New Data with Latest Numerion, retry with closed price"}
+
+ALL_BATCH_SIZE = 8
+
+# ALL_BATCH_SIZE = 1
+# CFG.StartTest = EasyDict()
+# CFG.StartTest.YES = True # 是否开始测试
+# CFG.StartTest.ckpt_save_dir = "/home/benyan2023/workspace/STEP/STEP/checkpoints/Numerion_200/in48-pred3retry" # 选择哪个模型测试
+# CFG.StartTest.test_whole = True # 是否进行预测累计收益率的测试
+# CFG.StartTest.AllowShort = False # 是否允许做空
+# CFG.StartTest.UseTrain = False  # 是否使用训练集进行测试
+# CFG.StartTest.UseValid = False # 是否使用验证集测试
+# CFG.StartTest.RandomSelect=False # 是否随机选股票
+# CFG.StartTest.test_line = False # 是否进行绘制某只股票的价格曲线的测试
+# CFG.StartTest.select = [0,1,2,3,4,5] # 选择哪只股票？
+
 
 # ================= general ================= #
 CFG.DESCRIPTION = "Numerion (CSI500) configuration"
@@ -36,11 +37,26 @@ CFG.DATASET_CLS = TimeSeriesForecastingDataset
 CFG.DATASET_NAME = "csi500"
 CFG.DATASET_TYPE = "Finance data"
 
-ALL_BATCH_SIZE = 8
-SEQ_LEN = 100 #尝试800 - 1
-OUT_LEN  = 5
-EMBED_DIM = 64
-INPUT_LEN = SEQ_LEN
+
+SEQ_LEN=12
+OUT_LEN=3
+NUM_NODES = 500
+
+Args = NumerionArgs(
+    seq_len=SEQ_LEN,
+    pred_len=OUT_LEN,
+    input_dim=NUM_NODES,
+    d_model=[12,4],
+    n_layer=2,
+    patch_level=-1
+)
+
+# Args.seq_len = SEQ_LEN #尝试800 - 1
+# Args.pred_len  = OUT_LEN
+# Args.input_dim = 498
+# Args.d_model = [64,16]
+# Args.n_layer = 2
+# Args.patch_level = -1
 
 CFG.DATASET_INPUT_LEN = SEQ_LEN
 CFG.DATASET_OUTPUT_LEN = OUT_LEN
@@ -58,17 +74,10 @@ CFG.MODEL = EasyDict()
 CFG.MODEL.NAME = "Numerion"
 CFG.MODEL.ARCH = Numerion
 CFG.MODEL.PARAM = {
-    "seq_len":INPUT_LEN,
-    "pred_len":OUT_LEN,
-    "patch_dim": 64,
-    "patch_level": -1,
-    "d_model":[64,32],
-    "input_dim":498,
-    "n_layer": 2,
-    "dropout":0.7,
+    "configs":Args
 }
 
-CFG.MODEL.FORWARD_FEATURES = [1]
+CFG.MODEL.FORWARD_FEATURES = None
 CFG.MODEL.TARGET_FEATURES = [0]
 CFG.MODEL.DDP_FIND_UNUSED_PARAMETERS = True
 
@@ -88,7 +97,7 @@ CFG.TRAIN.NUM_EPOCHS = 200
 CFG.TRAIN.LR_SCHEDULER = EasyDict()
 CFG.TRAIN.LR_SCHEDULER.TYPE = "CosineAnnealingLR"
 CFG.TRAIN.LR_SCHEDULER.PARAM= {
-    "T_max": CFG.TRAIN.NUM_EPOCHS,
+    "T_max": CFG.TRAIN.NUM_EPOCHS // 4,
     "eta_min":1e-5,
 }
 

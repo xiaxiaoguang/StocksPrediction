@@ -7,7 +7,6 @@ class STEPRunner(BaseTimeSeriesForecastingRunner):
     def __init__(self, cfg: dict):
         super().__init__(cfg)
         self.metrics = cfg.get("METRICS", {"MAE": masked_mae, "RMSE": masked_rmse, "MAPE": masked_mape , 
-                                           "ReturnLAM":returnLAM,"MRLoss":MRLoss,"MDLoss":MDLoss,
                                            "Average_Return":AvgR,
                                            "Best_Return_10":bstReturn(10),"Our_Return_10":predReturn(10),
                                            "Random_Return_10":RndReturn(10),"Success_rate_10":successK(10),"SR_10":SR(10),

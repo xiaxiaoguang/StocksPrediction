@@ -3,388 +3,270 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 
-
-def returnLAM(prediction,real_value ,null_val: float = np.nan,M5 = 2):
-    # L1 loss and topk margin
-    if prediction.shape[3]!=1:
-        prediction=prediction[:,:,:,1]
-    if real_value.shape[3]!=1:
-        real_value=real_value[:,:,:,1].unsqueeze(-1)
+def IC(prediction, real_value, null_val: float = np.nan):
+    """
+    Information Coefficient (Pearson Correlation between predicted and actual prices).
+    Measures cross-sectional forecasting accuracy across all N assets at the final step.
+    """
+    # 1. Dimensionality checks
+    if prediction.dim() == 4 and prediction.shape[3] != 1:
+        prediction = prediction[:, :, :, 1]
+    if real_value.dim() == 4 and real_value.shape[3] != 1:
+        real_value = real_value[:, :, :, 1]
     if prediction.shape != real_value.shape:
         prediction = prediction.squeeze(-1)
-    prediction_return = torch.prod(torch.add(prediction,1),dim=1)
-    real_return = torch.prod(torch.add(real_value,1),dim=1)
-    # dif1  = torch.nn.functional.l1_loss(prediction_return,real_return)
-    tmp1 = torch.abs(torch.topk(prediction_return,k=M5,dim=1)[0]-
-                     torch.topk(real_return,k=M5,dim=1)[0])
-    tmp2 = torch.abs(torch.topk(prediction_return,k=M5,dim=1,largest=False)[0]-
-                     torch.topk(real_return,k=M5,dim=1,largest=False)[0])
-    # tmp += torch.abs(torch.topk(prediction_return,largest=False,k=M5,dim=1)[0]-torch.topk(real_return,largest=False,k=M5,dim=1)[0])
-    dif2 = torch.mean(tmp1+tmp2)
-    return  dif2
-
-def normalized(prediction):
-    MX = torch.max(prediction,dim=1,keepdim=True)[0]
-    MI = torch.min(prediction,dim=1,keepdim=True)[0]
-    return (prediction-MI)/(MX-MI)
-
-def PLKLoss(prediction,real_value,null_val: float = np.nan):
-    if prediction.shape[3]!=1:
-        prediction=prediction[:,:,:,1]
-    if real_value.shape[3]!=1:
-        real_value=real_value[:,:,:,1].unsqueeze(-1)
-    if prediction.shape != real_value.shape:
-        prediction = prediction.squeeze(-1)
-    prediction_return = torch.prod(torch.add(prediction,1),dim=1)
-    real_return = torch.prod(torch.add(real_value,1),dim=1)
-    B = prediction.shape[0]
-    N = prediction_return.shape[1]
-    sort_index = torch.argsort(real_return,dim=1,descending=True).view(-1)
-    indices_array = torch.repeat_interleave((torch.arange(B)), N)
-    a = prediction_return[indices_array,sort_index]
-    tmp = ((torch.arange(start=-N,end=N,step=2,device=prediction_return.device).unsqueeze(-1).repeat(B,1) / N))
-    a = torch.sum(a * tmp) / B
-    return a
-
-def construct_unimodal_function(N, l, device):
-    x = torch.linspace(0, N, steps=N,device=device)
-    sigma = (N / 10)  # Standard deviation, adjust to control the width of the peak
-    y = torch.exp(-0.5 * ((x - l) / sigma) ** 2)
-    return x, y
-
-def generate_sequence(N, L , gap , device):
-    if not (0 <= L <= N):
-        raise ValueError("L should be in the range [0, N]")
-    sequence = torch.zeros(N,device=device)
-
-    if L > 0:
-        sequence[:L] = (torch.arange(L + 1, 1 , step=-1).float())/2/(L+1)+gap
-    if L < N:
-        sequence[L:] = (-torch.arange(1, N - L + 1).float())/2/(N-L+1)-gap
-
-    return sequence
-
-def MDLoss(prediction,real_value, topk=30 ,null_val: float = np.nan):
-    if prediction.shape[3]!=1:
-        prediction=prediction[:,:,:,1]
-    if real_value.shape[3]!=1:
-        real_value=real_value[:,:,:,1].unsqueeze(-1)
-    if prediction.shape != real_value.shape:
-        prediction = prediction.squeeze(-1)
-    prediction_return = torch.prod(torch.add(prediction,1),dim=1)
-    real_return = torch.prod(torch.add(real_value,1),dim=1)
-
-    B = prediction.shape[0]
-    N = prediction_return.shape[1]
-    sort_index = torch.argsort(real_return,dim=1,descending=True)
-    # sort_index = sort_index.view(-1)
-    # indices_array = torch.repeat_interleave((torch.arange(B)), N)
-#real_return.gather(1, sort_index[:, :, 0].unsqueeze(-1))
-    sorted_pred = torch.exp(prediction_return.gather(1, sort_index[:, :, 0].unsqueeze(-1)).squeeze(-1))
-    # Sum the topk and remaining elements along the specified dimension
-    topk_sum = (torch.log(sorted_pred[:, :topk])).sum(dim=-1)
-    rest_sum = -torch.log(torch.cumsum(torch.flip(sorted_pred,[1]),dim=1))[:,-topk:].sum(dim=-1)
+        
+    # 2. Extract final step price
+    prediction_signal = prediction[:, -1] # Shape: [B, N]
+    real_signal = real_value[:, -1]       # Shape: [B, N]
     
-    # Compute the loss
-    loss = (topk_sum+rest_sum).sum() / (B)
-    # PLKLoss = torch.mean(-torch.log(prediction_return[indices_array,sort_index]))
-    # PLKLoss += torch.mean(torch.log(torch.cumsum(prediction_return[indices_array,sort_index], dim=0)))
-    return loss
-
-
-def MRLoss(prediction,real_value, margin=0.02 , gap=0.5 ,null_val: float = np.nan):
-    if prediction.shape[3]!=1:
-        prediction=prediction[:,:,:,1]
-    if real_value.shape[3]!=1:
-        real_value=real_value[:,:,:,1].unsqueeze(-1)
-    if prediction.shape != real_value.shape:
-        prediction = prediction.squeeze(-1)
-
-    prediction_return = torch.prod(torch.add(prediction,1),dim=1)
-    real_return = torch.prod(torch.add(real_value,1),dim=1)
-
-    B = prediction.shape[0]
-    N = prediction_return.shape[1]
+    # 3. Calculate means along the asset dimension (dim=1)
+    pred_mean = torch.mean(prediction_signal, dim=1, keepdim=True)
+    real_mean = torch.mean(real_signal, dim=1, keepdim=True)
     
-    sort_index = torch.argsort(real_return,dim=1,descending=True)
-    # indices_array = torch.repeat_interleave((torch.arange(B)), N)
-
-    # tmp = ((torch.arange(start=N-N/maxk,end=-N/maxk,step=-1,device=prediction_return.device).unsqueeze(-1)/N - 0.5) * 2)
-    # # tmp[-(maxk+maxk):,:] -= torch.sigmoid(torch.arange(start=-maxk,end=maxk,step=1,device=prediction_return.device)).unsqueeze(-1)
-    # tmp = torch.exp(tmp)-torch.exp(-tmp)
-    # tmp = tmp.repeat(B,1)
-    MRLoss = torch.nn.MarginRankingLoss(margin)
-    loss = 0
-    for i in range(B):
-        a = prediction_return[i,sort_index[i,:,0],0]
-        b = real_return [i,sort_index[i,:,0],0]
-        _p = (b <= 1).nonzero()
-        if _p.shape[0] == 0:
-            piv = N-1
-        else :
-            piv = _p[0].item()
-        tmp = generate_sequence(N,piv,gap,device=prediction_return.device)
-        # loss += (tmp*(b-a)).sum()/N
-        loss += MRLoss(a,b,tmp)
-    loss /= B
-    return loss
-
-def MRLoss2(prediction,real_value, margin=0.02 , maxk=10 ,null_val: float = np.nan):
-    if prediction.shape[3]!=1:
-        prediction=prediction[:,:,:,1]
-    if real_value.shape[3]!=1:
-        real_value=real_value[:,:,:,1].unsqueeze(-1)
-    if prediction.shape != real_value.shape:
-        prediction = prediction.squeeze(-1)
-
-    prediction_return = torch.prod(torch.add(prediction,1),dim=1)
-    real_return = torch.prod(torch.add(real_value,1),dim=1)
-
-    B = prediction.shape[0]
-    N = prediction_return.shape[1]
+    # 4. Center the variables
+    pred_centered = prediction_signal - pred_mean
+    real_centered = real_signal - real_mean
     
-    sort_index = torch.argsort(real_return,dim=1,descending=True).view(-1)
-    indices_array = torch.repeat_interleave((torch.arange(B)), N)
-
-    tmp = ((torch.arange(start=N-N/maxk,end=-N/maxk,step=-1,device=prediction_return.device).unsqueeze(-1)/N - 0.5) * 2)
-    # tmp[-(maxk+maxk):,:] -= torch.sigmoid(torch.arange(start=-maxk,end=maxk,step=1,device=prediction_return.device)).unsqueeze(-1)
-    tmp = torch.exp(tmp)-torch.exp(-tmp)
-    tmp = tmp.repeat(B,1)
-
-    a = prediction_return[indices_array,sort_index]
-    b = real_return[indices_array,sort_index]
-    MRLoss = torch.nn.MarginRankingLoss(margin)
-    loss = MRLoss(a,b,tmp)
-    return loss
-
-def PLKnce(hidden_space, sort_index , topk=20 , null_val:float = np.nan):
-    B,N,E = hidden_space.shape
-    sort_index = sort_index.repeat(1,1,E)
-    sorted_pred = hidden_space.gather(1, sort_index).squeeze(-1)
+    # 5. Covariance and Standard Deviations
+    cov = torch.sum(pred_centered * real_centered, dim=1)
+    pred_std = torch.sqrt(torch.sum(pred_centered ** 2, dim=1) + 1e-8)
+    real_std = torch.sqrt(torch.sum(real_centered ** 2, dim=1) + 1e-8)
     
-    similarity = torch.exp(F.cosine_similarity(sorted_pred[:,0].unsqueeze(1), sorted_pred[:,:],dim=-1))
-    topk_sum = -(torch.log(similarity[:, :topk])).sum(dim=-1)
-    rest_sum = torch.log(torch.cumsum(torch.flip(similarity[:,topk:],[1]),dim=1))[:,-topk:].sum(dim=-1)
-    loss = (topk_sum+rest_sum).sum() / (B)
+    # 6. Pearson Correlation (IC) for each batch
+    ic_per_batch = cov / (pred_std * real_std + 1e-8)
+    
+    return torch.mean(ic_per_batch)
 
-    # sort_index = torch.flip(sort_index,[1])
-    # sorted_pred = hidden_space.gather(1, sort_index).squeeze(-1)
-    # similarity = torch.exp(F.cosine_similarity(sorted_pred[:,0].unsqueeze(1), sorted_pred[:,:],dim=-1))
-    # topk_sum = -(torch.log(similarity[:, :topk])).sum(dim=-1)
-    # rest_sum = torch.log(torch.cumsum(torch.flip(similarity[:,topk:],[1]),dim=1))[:,-topk:].sum(dim=-1)
-    # loss += (topk_sum+rest_sum).sum() / (B)
 
-    return loss
+def MDD(K=10):
+    """
+    Maximum Drawdown metric (Additive).
+    Evaluates the worst-case drop of the Top-K portfolio over the batch dimension,
+    treating the standardized prices as additive strategy scores.
+    """
+    def _MDD(prediction, real_value, null_val: float = np.nan):
+        if prediction.dim() == 4 and prediction.shape[3] != 1:
+            prediction = prediction[:, :, :, 1]
+        if real_value.dim() == 4 and real_value.shape[3] != 1:
+            real_value = real_value[:, :, :, 1]
+        if prediction.shape != real_value.shape:
+            prediction = prediction.squeeze(-1)
+            
+        prediction_signal = prediction[:, -1]
+        real_signal = real_value[:, -1]
+        
+        B = prediction_signal.shape[0]
+        
+        # Select Top-K stocks based on highest predicted close price
+        _, topKindices = torch.topk(prediction_signal, dim=1, k=K)
+        topKindices = topKindices.view(-1) 
+        indices_array = torch.repeat_interleave((torch.arange(B)), K)
+        
+        # Average actual price/score of our selected Top-K portfolio at each step
+        step_returns = real_signal[indices_array, topKindices].view(B, K).mean(dim=1)
+        
+        # Calculate cumulative additive wealth over the B dimension (treating B as time)
+        cum_wealth = torch.cumsum(step_returns, dim=0)
+        
+        # Calculate Running Maximum (High Water Mark)
+        running_max = torch.cummax(cum_wealth, dim=0)[0]
+        
+        # Calculate Additive Drawdowns (Distance from peak)
+        drawdowns = running_max - cum_wealth
+        
+        # Return the Maximum Drawdown
+        return torch.max(drawdowns)
+    return _MDD
+
 def SR(K):
-    def Sharperatio(prediction,real_value,null_val: float=np.nan):
-        if prediction.shape[3]!=1:
-            prediction=prediction[:,:,:,1]
-        if real_value.shape[3]!=1:
-            real_value=real_value[:,:,:,1]
+    def Sharperatio(prediction, real_value, null_val: float=np.nan):
+        # 1. Dimensionality checks
+        if prediction.dim() == 4 and prediction.shape[3] != 1:
+            prediction = prediction[:, :, :, 1]
+        if real_value.dim() == 4 and real_value.shape[3] != 1:
+            real_value = real_value[:, :, :, 1]
         if prediction.shape != real_value.shape:
             prediction = prediction.squeeze(-1)
 
-        prediction_return = torch.prod(torch.add(prediction,1),dim=1)
-        real_return = torch.prod(torch.add(real_value,1),dim=1) - 1 # 假设我们有保值投资·
+        # 2. Extract final step price (No more compounding 1+r)
+        prediction_signal = prediction[:, -1] # Shape: [B, N]
+        real_signal = real_value[:, -1]       # Shape: [B, N]
+        
+        B = prediction_signal.shape[0]
+        
+        # 3. Greedy: Sort by highest predicted price
+        _, topKindices = torch.topk(prediction_signal, dim=1, k=K)
+        topKindices = topKindices.view(-1) # B * K
+        indices_array = torch.repeat_interleave(torch.arange(B), K)
+        
+        # 4. Evaluate using the actual prices of chosen assets
+        Expected = torch.mean(real_signal[indices_array, topKindices])
+        Var = torch.var(real_signal[indices_array, topKindices])
 
-        B = prediction.shape[0]
-        _ , topKindices = torch.topk(prediction_return,dim=1,k=K)
-        topKindices = topKindices.view(-1) # B * 10
-        indices_array = torch.repeat_interleave((torch.arange(B)), K)
-
-        Expected = torch.mean(real_return[indices_array,topKindices])
-        Var = torch.var(real_return[indices_array,topKindices])
-
-        return Expected/torch.sqrt(Var)
+        return Expected / (torch.sqrt(Var) + 1e-8)
     return Sharperatio
 
-def return10(prediction,real_value,null_val: float = np.nan):
-    if prediction.shape[3]!=1:
-        prediction=prediction[:,:,:,1]
-    if real_value.shape[3]!=1:
-        real_value=real_value[:,:,:,1].unsqueeze(-1)
-    if prediction.shape != real_value.shape:
-        prediction = prediction.squeeze(-1)
-    prediction_return = torch.prod(torch.add(prediction,1),dim=1)
-    real_return = torch.prod(torch.add(real_value,1),dim=1)  
-    B = prediction.shape[0]
-    _ , top10indices = torch.topk(prediction_return,dim=1,k=10)
-    top10indices = top10indices.view(-1) # B * 10
-    indices_array = torch.repeat_interleave((torch.arange(B)), 10)
-    # pairs = [(a,b) for a, b in zip(indices_array, top10indices)]
-    realtop10 , _ =torch.topk(real_return,dim=1,k=10)
-    dif2 = torch.mean(torch.abs(realtop10.squeeze(-1)-real_return[indices_array,top10indices].view(B,10)))
-    return dif2
-
-def RightOrder(prediction,real_value,null_val: float = np.nan):
-    # 这应该有一个置信度分数才对
-    if prediction.shape[3]!=1:
-        prediction=prediction[:,:,:,1]
-    if real_value.shape[3]!=1:
-        real_value=real_value[:,:,:,1].unsqueeze(-1)
-    if prediction.shape != real_value.shape:
-        prediction = prediction.squeeze(-1)
-    prediction_return = torch.sigmoid(torch.add(torch.prod(torch.add(prediction,1),dim=1),-1))
-    real_return = torch.prod(torch.add(real_value,1),dim=1)
-    target = torch.where(real_return > 1.0,1.0,0.0)
-    # prediction_return = torch.where(prediction_return > 1.0 , torch.ones_like(prediction_return), prediction_return)
-    # prediction_return = torch.where(prediction_return < 0.0 , torch.zeros_like(prediction_return), prediction_return)
-    return nn.functional.binary_cross_entropy(prediction_return,target)
-
-def BstR(prediction,real_value,null_val: float = np.nan):
-
-    if prediction.shape[3]!=1:
-        prediction=prediction[:,:,:,1]
-    if real_value.shape[3]!=1:
-        real_value=real_value[:,:,:,1].unsqueeze(-1)
-    real_return = torch.prod(torch.add(real_value,1),dim=1)
-    realtop10 , _ =torch.topk(real_return,dim=1,k=10)
-    BestReward = torch.mean(realtop10)
-    return BestReward
-
-def RndR(prediction, real_value ,null_val: float = np.nan):
-
-    if prediction.shape[3]!=1:
-        prediction=prediction[:,:,:,1]
-    if real_value.shape[3]!=1:
-        real_value=real_value[:,:,:,1].unsqueeze(-1)
-    real_return = torch.prod(torch.add(real_value,1),dim=1)
-    B = prediction.shape[0]
-    indices_array = torch.repeat_interleave((torch.arange(B)), 10)
-    randomchoice = torch.randint(low=0,high=500,size=(B*10,))
-    RandomReward = torch.mean(real_return[indices_array,randomchoice])
-    return RandomReward,indices_array
-
-def PredR(prediction, real_value ,null_val: float = np.nan):
-    if prediction.shape[3]!=1:
-        prediction=prediction[:,:,:,1]
-    if real_value.shape[3]!=1:
-        real_value=real_value[:,:,:,1].unsqueeze(-1)
-    if prediction.shape != real_value.shape:
-        prediction = prediction.squeeze(-1)
-    prediction_return = torch.prod(torch.add(prediction,1),dim=1)
-    real_return = torch.prod(torch.add(real_value,1),dim=1)
-    B = prediction.shape[0]
-    _ , top10indices = torch.topk(prediction_return,dim=1,k=10)
-    top10indices = top10indices.view(-1) # B * 10
-    indices_array = torch.repeat_interleave((torch.arange(B)), 10)
-    tmp = torch.ones_like(prediction_return)
-    real_return = torch.where(prediction_return > 1 ,real_return, tmp)
-    OurReward = torch.mean(real_return[indices_array,top10indices])
-    return  OurReward, top10indices, real_return[indices_array,top10indices], prediction_return[indices_array,top10indices]
-
-
-def AvgR(prediction,real_value,null_val: float = np.nan):
-    real_return = torch.prod(torch.add(real_value,1),dim=1)
-    return torch.mean(real_return)
-
-def successK(K):
-    def _success(prediction,real_value,null_val:float=np.nan):
-        if prediction.shape[3]!=1:
-            prediction=prediction[:,:,:,1]
-        if real_value.shape[3]!=1:
-            real_value=real_value[:,:,:,1]
-        if prediction.shape != real_value.shape:
-            prediction = prediction.squeeze(-1)
-        prediction_return = torch.prod(torch.add(prediction,1),dim=1)
-        real_return = torch.prod(torch.add(real_value,1),dim=1)
-
-        B = prediction.shape[0]
-        _ , top10indices = torch.topk(prediction_return,dim=1,k=K)
-        top10indices = top10indices.view(-1) # B * 10
-
-        indices_array = torch.repeat_interleave((torch.arange(B)), K)
-        success_rate = torch.sum(real_return[indices_array,top10indices]>1.0)/(K*B)
-
-        return success_rate
-    return _success
-
-def returnK(K):
-    def return_(prediction,real_value,null_val: float = np.nan):
-        if prediction.shape[3]!=1:
-            prediction=prediction[:,:,:,1]
-        if real_value.shape[3]!=1:
-            real_value=real_value[:,:,:,1]
-        if prediction.shape != real_value.shape:
-            prediction = prediction.squeeze(-1)
-        prediction_return = torch.prod(torch.add(prediction,1),dim=1)
-        real_return = torch.prod(torch.add(real_value,1),dim=1)  
-        B = prediction.shape[0]
-        _ , topKindices = torch.topk(prediction_return,dim=1,k=K)
-        topKindices = topKindices.view(-1) # B * K
-        indices_array = torch.repeat_interleave((torch.arange(B)), K)
-        # pairs = [(a,b) for a, b in zip(indices_array, topKindices)]
-        realtopK , _ =torch.topk(real_return,dim=1,k=K)
-        dif2 = torch.mean(torch.abs(realtopK.squeeze(-1)-real_return[indices_array,topKindices].view(B,K)))
-        return dif2
-    return return_
-
 def predReturn(K):
-    def Prediction_Return(prediction, real_value,null_val: float = np.nan):
-        if prediction.shape[3]!=1:
-            prediction=prediction[:,:,:,1]
-        if real_value.shape[3]!=1:
-            real_value=real_value[:,:,:,1]
+    def Prediction_Return(prediction, real_value, buy_price, null_val: float = np.nan):
+        # Handle dimensions for all inputs
+        if prediction.dim() == 4 and prediction.shape[3] != 1:
+            prediction = prediction[:, :, :, 1]
+        if real_value.dim() == 4 and real_value.shape[3] != 1:
+            real_value = real_value[:, :, :, 1]
+        if buy_price.dim() == 4 and buy_price.shape[3] != 1:
+            buy_price = buy_price[:, :, :, 1]
+            
         if prediction.shape != real_value.shape:
             prediction = prediction.squeeze(-1)
-        prediction_return = torch.prod(torch.add(prediction,1),dim=1)
-        real_return = torch.prod(torch.add(real_value,1),dim=1)
-        B = prediction.shape[0]
-        _ , top10indices = torch.topk(prediction_return,dim=1,k=K)
-        top10indices = top10indices.view(-1) # B * 10
+            
+        prediction_signal = prediction[:, -1]
+        real_future = real_value[:, -1]
+        real_buy = buy_price[:, -1]
+        # Calculate the actual percentage return based on buy price and future price
+        real_signal = (real_future - real_buy) / real_buy
+        
+        B = prediction_signal.shape[0]
+        _, topKindices = torch.topk(prediction_signal, dim=1, k=K)
+        topKindices = topKindices.view(-1)
         indices_array = torch.repeat_interleave((torch.arange(B)), K)
-        OurReward = torch.mean(real_return[indices_array,top10indices])
-        return  OurReward
+        
+        # Get the actual returns of the chosen stocks
+        chosen_returns = real_signal[indices_array, topKindices].view(B, K)
+        
+        # Total profit from $1 is the sum of (1/k * return) across the K chosen stocks
+        portfolio_profit = torch.sum((1.0 / K) * chosen_returns, dim=1)
+        
+        # Final value of the $1 investment, averaged across the batch
+        FinalMoney = torch.mean(1.0 + portfolio_profit)
+        return FinalMoney
     return Prediction_Return
 
 def predReturn_Short(K):
-    def Prediction_Return(prediction, real_value,null_val: float = np.nan):
-        if prediction.shape[3]!=1:
-            prediction=prediction[:,:,:,1]
-        if real_value.shape[3]!=1:
-            real_value=real_value[:,:,:,1]
+    def Prediction_Return(prediction, real_value, buy_price, null_val: float = np.nan):
+        if prediction.dim() == 4 and prediction.shape[3] != 1:
+            prediction = prediction[:, :, :, 1]
+        if real_value.dim() == 4 and real_value.shape[3] != 1:
+            real_value = real_value[:, :, :, 1]
+        if buy_price.dim() == 4 and buy_price.shape[3] != 1:
+            buy_price = buy_price[:, :, :, 1]
+            
         if prediction.shape != real_value.shape:
             prediction = prediction.squeeze(-1)
-        prediction_return = torch.prod(torch.add(prediction,1),dim=1)
-        real_return = torch.prod(torch.add(real_value,1),dim=1)
+            
+        prediction_signal = prediction[:, -1]
+        real_future = real_value[:, -1]
+        real_buy = buy_price[:, -1]
+        # Calculate the actual percentage return
+        real_signal = (real_future - real_buy) / real_buy
         
-        indices_array = torch.repeat_interleave((torch.arange(prediction.shape[0])), K)
+        B = prediction_signal.shape[0]
+        indices_array = torch.repeat_interleave((torch.arange(B)), K)
 
-        _ , top10indices = torch.topk(torch.abs(prediction_return),dim=1,k=K)
-        top10indices = top10indices.view(-1) # B * 10
-        OurReward = torch.mean(torch.where(prediction_return[indices_array, top10indices] > 1,real_return[indices_array, top10indices],2 - real_return[indices_array, top10indices]))
-        return  OurReward
+        # For shorting, we care about strongest absolute signals
+        _, topKindices = torch.topk(torch.abs(prediction_signal), dim=1, k=K)
+        topKindices = topKindices.view(-1)
+        chosen_preds = prediction_signal[indices_array, topKindices].view(B, K)
+        chosen_returns = real_signal[indices_array, topKindices].view(B, K)
+        
+        # Long gives real return, Short gives inverted real return
+        returns = torch.where(chosen_preds > 0, chosen_returns, -chosen_returns)
+        
+        # Calculate portfolio profit and add back the initial $1
+        portfolio_profit = torch.sum((1.0 / K) * returns, dim=1)
+        FinalMoney = torch.mean(1.0 + portfolio_profit)
+        return FinalMoney
     return Prediction_Return
 
 def bstReturn(K):
-    def Best_Return(prediction, real_value,null_val: float = np.nan):
-        if prediction.shape[3]!=1:
-            prediction=prediction[:,:,:,1]
-        if real_value.shape[3]!=1:
-            real_value=real_value[:,:,:,1]
-        real_return = torch.prod(torch.add(real_value,1),dim=1)
-        realtop10 , _ =torch.topk(real_return,dim=1,k=K)
-        BestReward = torch.mean(realtop10)
-        return BestReward
+    def Best_Return(prediction, real_value, buy_price, null_val: float = np.nan):
+        if prediction.dim() == 4 and prediction.shape[3] != 1:
+            prediction = prediction[:, :, :, 1]
+        if real_value.dim() == 4 and real_value.shape[3] != 1:
+            real_value = real_value[:, :, :, 1]
+        if buy_price.dim() == 4 and buy_price.shape[3] != 1:
+            buy_price = buy_price[:, :, :, 1]
+            
+        real_future = real_value[:, -1]
+        real_buy = buy_price[:, -1]
+        
+        # Calculate actual returns to find the absolute best stocks to have bought
+        real_signal = (real_future - real_buy) / real_buy
+        
+        # Top K is now based on the best actual percentage returns, not just highest raw price
+        realtopK_returns, _ = torch.topk(real_signal, dim=1, k=K) 
+        
+        # 1 dollar invested perfectly (1/k per top performing stock)
+        portfolio_profit = torch.sum((1.0 / K) * realtopK_returns, dim=1)
+        BestMoney = torch.mean(1.0 + portfolio_profit)
+        return BestMoney
     return Best_Return
 
-
-
 def RndReturn(K):
-    def Rand_Return(prediction, real_value,null_val: float = np.nan):
-        if prediction.shape[3]!=1:
-            prediction=prediction[:,:,:,1]
-        if real_value.shape[3]!=1:
-            real_value=real_value[:,:,:,1]
-        real_return = torch.prod(torch.add(real_value,1),dim=1)
+    def Rand_Return(prediction, real_value, buy_price, null_val: float = np.nan):
+        if prediction.dim() == 4 and prediction.shape[3] != 1:
+            prediction = prediction[:, :, :, 1]
+        if real_value.dim() == 4 and real_value.shape[3] != 1:
+            real_value = real_value[:, :, :, 1]
+        if buy_price.dim() == 4 and buy_price.shape[3] != 1:
+            buy_price = buy_price[:, :, :, 1]
+            
+        if prediction.shape != real_value.shape:
+            prediction = prediction.squeeze(-1)
+            
+        real_future = real_value[:, -1]
+        real_buy = buy_price[:, -1]
+        
+        # Calculate actual returns
+        real_signal = (real_future - real_buy) / real_buy
+        
         B = prediction.shape[0]
+        N = real_signal.shape[1] 
+        
         indices_array = torch.repeat_interleave((torch.arange(B)), K)
-        randomchoice = torch.randint(low=0,high=prediction.shape[1],size=(B*K,))
-        RandomReward = torch.mean(real_return[indices_array,randomchoice])
-        return RandomReward
+        randomchoice = torch.randint(low=0, high=N, size=(B * K,))
+        
+        chosen_returns = real_signal[indices_array, randomchoice].view(B, K)
+        
+        # 1 dollar invested randomly (1/k per random stock)
+        portfolio_profit = torch.sum((1.0 / K) * chosen_returns, dim=1)
+        RandomMoney = torch.mean(1.0 + portfolio_profit)
+        return RandomMoney
     return Rand_Return
 
-
-# input = torch.rand(3, 2 , 20 , 1, requires_grad=True) - torch.rand(3, 2 , 20 , 1, requires_grad=True)
-# target = torch.rand(3, 2 , 20 , 1, requires_grad=False) - torch.rand(3, 2 , 20 , 1, requires_grad=False) 
-# print(RightOrder(input,target),returnMSQA(input,target))
+def returnK(K):
+    def return_(prediction, real_value, buy_price, null_val: float = np.nan):
+        if prediction.dim() == 4 and prediction.shape[3] != 1:
+            prediction = prediction[:, :, :, 1]
+        if real_value.dim() == 4 and real_value.shape[3] != 1:
+            real_value = real_value[:, :, :, 1]
+        if buy_price.dim() == 4 and buy_price.shape[3] != 1:
+            buy_price = buy_price[:, :, :, 1]
+            
+        if prediction.shape != real_value.shape:
+            prediction = prediction.squeeze(-1)
+            
+        prediction_signal = prediction[:, -1]
+        real_future = real_value[:, -1]
+        real_buy = buy_price[:, -1]
+        
+        # Calculate actual returns
+        real_signal = (real_future - real_buy) / real_buy
+        
+        B = prediction_signal.shape[0]
+        _, topKindices = torch.topk(prediction_signal, dim=1, k=K)
+        topKindices = topKindices.view(-1)
+        indices_array = torch.repeat_interleave(torch.arange(B), K)
+        
+        # Get the returns for both the best K and our chosen K, shaped as [B, K]
+        realtopK_returns, _ = torch.topk(real_signal, dim=1, k=K)
+        chosen_returns = real_signal[indices_array, topKindices].view(B, K)
+        
+        # Calculate the final portfolio value for both: 1 dollar + sum(1/k * return)
+        best_portfolio_value = 1.0 + torch.sum((1.0 / K) * realtopK_returns, dim=1)
+        our_portfolio_value = 1.0 + torch.sum((1.0 / K) * chosen_returns, dim=1)
+        
+        # Regret/Error: the mean absolute difference between ideal portfolio and our portfolio
+        dif2 = torch.mean(torch.abs(best_portfolio_value - our_portfolio_value))
+        return dif2
+    return return_

@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 from ..base_tsf_runner import BaseTimeSeriesForecastingRunner
 from basicts.metrics import *
+import os
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 class iTransformerRunner(BaseTimeSeriesForecastingRunner):
@@ -19,9 +22,9 @@ class iTransformerRunner(BaseTimeSeriesForecastingRunner):
         self.forward_features = cfg["MODEL"].get("FORWARD_FEATURES", None)
         self.target_features = cfg["MODEL"].get("TARGET_FEATURES", None)
 
-        if cfg.get("StartTest",False):
-            self.ckpt_save_dir2 = self.ckpt_save_dir 
-            self.ckpt_save_dir = cfg.StartTest.ckpt_save_dir
+        # if cfg.get("StartTest",False):
+        #     self.ckpt_save_dir2 = self.ckpt_save_dir 
+        #     self.ckpt_save_dir = cfg.StartTest.ckpt_save_dir
 
         for p in self.model.parameters():
             if p.dim() > 1:
@@ -58,6 +61,43 @@ class iTransformerRunner(BaseTimeSeriesForecastingRunner):
         data = data[:, :, :, self.target_features]
         return data
 
+    def _visualize_results(self, history, real, prediction, epoch):
+            """
+            Internal helper to plot and save time series.
+            history: [B, L_in, N, C]
+            real: [B, L_out, N, C]
+            prediction: [B, L_out, N, C]
+            """
+            # Ensure the directory exists
+            # breakpoint()
+            save_path = os.path.join(self.ckpt_save_dir, 'plots')
+            os.makedirs(save_path, exist_ok=True)
+
+            # Move to CPU and pick the first batch, first node, first feature
+            # Shape: [Length]
+            hist_sample = history[0, :, 0, 0].detach().cpu().numpy()
+            real_sample = real[0, :, 0, 0].detach().cpu().numpy()
+            pred_sample = prediction[0, :, 0, 0].detach().cpu().numpy()
+
+            plt.figure(figsize=(10, 5))
+            
+            # Plot history
+            x_hist = np.arange(len(hist_sample))
+            plt.plot(x_hist, hist_sample, label='History', color='blue')
+
+            # Plot Ground Truth and Prediction
+            x_pred = np.arange(len(hist_sample), len(hist_sample) + len(real_sample))
+            plt.plot(x_pred, real_sample, label='Ground Truth', color='green', alpha=0.7)
+            plt.plot(x_pred, pred_sample, label='Prediction', color='red', linestyle='--')
+
+            plt.axvline(x=len(hist_sample)-1, color='gray', linestyle=':', label='Forecast Start')
+            plt.title(f"Epoch {epoch} - Time Series Forecasting")
+            plt.legend()
+            
+            # Save and close
+            plt.savefig(os.path.join(save_path, f"epoch_{epoch}_val.png"))
+            plt.close()
+
     def forward(self, data: tuple, epoch: int = None, iter_num: int = None, train: bool = True, **kwargs) -> tuple:
         """Feed forward process for train, val, and test. Note that the outputs are NOT re-scaled.
 
@@ -71,7 +111,7 @@ class iTransformerRunner(BaseTimeSeriesForecastingRunner):
             tuple: (prediction, real_value)
         """
         # preprocess
-        future_data, history_data,_ = data
+        future_data, history_data = data
         history_data = self.to_running_device(history_data)      # B, L, N, C
         future_data = self.to_running_device(future_data)       # B, L, N, C
         # label = self.to_running_device(label)
@@ -93,11 +133,12 @@ class iTransformerRunner(BaseTimeSeriesForecastingRunner):
 
         prediction = self.select_target_features(prediction_data)
         real_value = self.select_target_features(future_data_4_dec)
-        
-        # label = label[:,:,:,2].unsqueeze(-1)
-        # future_data = future_data * label
-        # label = label.unsqueeze(-1)
-        # prediction = prediction * label        
-        # post process
+
+        if train and ((iter_num % 1000) == 0) and epoch is not None:
+            # You can wrap this in a try-except to ensure plotting doesn't crash the training
+            try:
+                self._visualize_results(history_data, real_value, prediction, epoch)
+            except Exception as e:
+                print(f"Visualization failed at epoch {epoch}: {e}")
 
         return prediction, real_value

@@ -68,7 +68,7 @@ def smtsf_loss(prediction1, real_value1,prediction2,real_value2, null_val=np.nan
     loss_pred = tsformer_loss(prediction1,real_value1) + tsformer_loss(prediction2,real_value2)
     return loss_pred
 
-def normal_loss(prediction, real_value, null_val=np.nan):
+def normal_loss(prediction, real_value, null_val=0.0):
     loss_pred = masked_mae(preds=prediction,labels=real_value, null_val=null_val)
     return loss_pred
 

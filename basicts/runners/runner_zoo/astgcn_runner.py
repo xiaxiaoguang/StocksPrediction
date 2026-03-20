@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from ..base_tsf_runner import BaseTimeSeriesForecastingRunner
-from basicts.metrics import masked_mae, masked_rmse, masked_mape,return10,BstR,RndR,PredR,AvgR
+from basicts.metrics import masked_mae, masked_rmse, masked_mape,return10
 
 
 class ASTGCNrunner(BaseTimeSeriesForecastingRunner):
