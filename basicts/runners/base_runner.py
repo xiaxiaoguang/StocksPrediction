@@ -46,7 +46,7 @@ class BaseRunner(Runner):
         setproctitle.setproctitle("{0}@BasicTS".format(proctitle_name))
 
     @staticmethod
-    def define_model(cfg: Dict) -> nn.Module:        
+    def define_model(cfg: Dict) -> nn.Module:
         return cfg["MODEL"]["ARCH"](**cfg.MODEL.PARAM)
 
     def build_train_data_loader(self, cfg: dict) -> DataLoader:

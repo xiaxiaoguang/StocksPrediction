@@ -1,10 +1,14 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
+
 from timm.models.vision_transformer import trunc_normal_
 
-from .patch import STPatchEmbedding
-from .positional_encoding import OldPositionalEncoding
-from .transformer_layers import TransformerLayers,TransformerLayers2
+from .patch import PatchEmbedding,OldPatchEmbedding
+from .mask import MaskGenerator
+from .positional_encoding import PositionalEncoding,OldPositionalEncoding
+from .transformer_layers import TransformerLayers,TransformerDecoder
+
 
 def unshuffle(shuffled_tokens):
     dic = {}
@@ -15,149 +19,130 @@ def unshuffle(shuffled_tokens):
         unshuffle_index.append(dic[i])
     return unshuffle_index
 
+
+
 class SimpleFormer(nn.Module):
     """An efficient unsupervised pre-training model for Time Series based on transFormer blocks. (TSFormer)"""
 
-    def __init__(self, patch_size,node_fusion, 
-                 embed_dim, embed_dim2,
+    def __init__(self, patch_size, in_channel, 
+                 embed_dim,
                  num_heads, mlp_ratio,
-                 dropout, num_token,num_nodes,
-                 encoder1_depth, encoder2_depth, decoder_depth,
-                 selected_feature, pred_len=12,num_feats=45,
+                 dropout, num_token,
+                 encoder_depth, decoder_depth,
+                 selected_feature, pred_len=12,num_feats=1,
                  mode="pre-train"):
         super().__init__()
         # assert mode in ["pre-train", "forecasting"], "Error mode."
         # assert time in ["week","month"],"Error version"
         self.patch_size = patch_size
-
+        self.in_channel = in_channel
         self.embed_dim = embed_dim
-        self.embed_dim2 = embed_dim2
 
         self.num_heads = num_heads
         self.num_token = num_token
+
+        self.encoder_depth = encoder_depth
         self.mode = mode
         self.mlp_ratio = mlp_ratio
         self.selected_feature = selected_feature
 
-        self.enc_2_enc_norm_ti = nn.BatchNorm1d(num_nodes*node_fusion)
-        self.enc_2_enc_norm_sp = nn.BatchNorm1d(num_token*patch_size)
+        self.encoder_norm = nn.LayerNorm(embed_dim)
+        self.decoder_norm = nn.LayerNorm(embed_dim)
 
-        self.encoder_norm2_ti = nn.InstanceNorm1d(embed_dim2)
-        self.encoder_norm2_sp = nn.LayerNorm(embed_dim2)
-
-        self.decoder1_norm = nn.LayerNorm(embed_dim2)
-        self.decoder2_norm = nn.InstanceNorm2d(embed_dim2)
-
-        self.patch_embedding = STPatchEmbedding(patch_size, node_fusion,
-                                                 embed_dim ,norm_layer=None, num_feats=num_feats)
-        
-        self.positional_encoding_t = OldPositionalEncoding(embed_dim2, dropout=dropout)
-        self.positional_encoding_s = OldPositionalEncoding(embed_dim2, dropout=dropout)
-
+        self.patch_embedding = OldPatchEmbedding(patch_size, in_channel, embed_dim ,norm_layer=None,num_feats=num_feats)
+        self.positional_encoding = OldPositionalEncoding(embed_dim, dropout=dropout)
         self.device = next(self.parameters()).device
-
-        # self.mask = MaskGenerator(num_token, mask_ratio , self.device)
-        self.enc_2_enc_emb_ti1 = nn.Linear(num_token*embed_dim,num_token*embed_dim//4)
-        self.enc_2_enc_emb_ti2 = nn.Linear(num_token*embed_dim//4,embed_dim2)
-
-        self.enc_2_enc_emb_sp1 = nn.Linear(num_nodes*embed_dim,num_nodes*embed_dim//4)
-        self.enc_2_enc_emb_sp2 = nn.Linear(num_nodes*embed_dim//4,embed_dim2)
-
-        self.tiencoder2 = TransformerLayers(embed_dim2, encoder1_depth, mlp_ratio,num_heads, dropout)
-        self.spencoder2 = TransformerLayers(embed_dim2, encoder2_depth, mlp_ratio,num_heads, dropout)
-
-        # self.enc_2_dec_emb_ti = nn.Linear(embed_dim2, embed_dim2, bias=True)
-        # self.enc_2_dec_emb_sp = nn.Linear(embed_dim2, embed_dim2, bias=True)
-
-        # self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, embed_dim))
-        # self.decoder  = TransformerLayers2(embed_dim2, decoder_depth,   mlp_ratio, num_heads, dropout)
-        # self.decoder2 = TransformerLayers(embed_dim2 ,decoder_depth,    mlp_ratio, num_heads, dropout)
-        # self.output_layer = nn.Linear(embed_dim2, pred_len)
-        self.out = nn.Sequential(
-            nn.Linear(embed_dim2, embed_dim2 // 2),
-            nn.ReLU(),
-            nn.Linear(embed_dim2 // 2, pred_len),
-        )
-        self.saliency_proj1 = nn.Linear(embed_dim2,embed_dim2)
-        self.saliency_proj2 = nn.Linear(embed_dim2,embed_dim2)
+        self.encoder  = TransformerLayers(embed_dim, encoder_depth, mlp_ratio, num_heads, dropout)
+        self.enc_2_dec_emb = nn.Linear(embed_dim, embed_dim, bias=True)
+        self.decoder  = TransformerLayers(embed_dim, decoder_depth, mlp_ratio, num_heads, dropout)
+        self.output_layer = nn.Linear(embed_dim, pred_len)
+        
         self.initialize_weights()
 
     def initialize_weights(self):
-        # positional encoding
-        nn.init.uniform_(self.positional_encoding_s.position_embedding, -.02, .02)
-        nn.init.uniform_(self.positional_encoding_t.position_embedding, -.02, .02)
-        # mask token
-        # trunc_normal_(self.mask_token, std=.02)
+        nn.init.uniform_(self.positional_encoding.position_embedding, -.02, .02)
 
     def encoding(self, long_term_history, mask=True):
-        """Encoding process of TSFormer: patchify, positional encoding, mask, Transformer layers.
+        if mask:
+            patches = self.patch_embedding(long_term_history)  # B, N, d, P
+            patches = patches.transpose(-1, -2)  # B, N, P, d
+            batch_size, num_nodes, num_time, num_dim  =  patches.shape
+            patches,self.pos_mat = self.positional_encoding(patches)        # mask
+            Maskg=MaskGenerator(patches.shape[1], self.mask_ratio)
 
-        Args:
-            long_term_history (torch.Tensor): Very long-term historical MTS with shape [B, N, 1, P * L],
-                                                which is used in the TSFormer.
-                                                P is the number of segments (patches).
-            mask (bool): True in pre-training stage and False in forecasting stage.
+            unmasked_token_index, masked_token_index = Maskg.uniform_rand()
+            encoder_input = patches[:, unmasked_token_index, :, :]
+            encoder_input=encoder_input.transpose(-2,-3)
 
-        Returns:
-            torch.Tensor: hidden states of unmasked tokens
-            list: unmasked token index
-            list: masked token index
-        """
-        batch_size, num_nodes, _, tim_len = long_term_history.shape# patchify and embed input
+            hidden_states_unmasked = self.encoder(encoder_input)
+            hidden_states_unmasked = self.encoder_norm(hidden_states_unmasked).view(batch_size,num_time, -1, self.embed_dim)
 
-        ti_patches,sp_patches = self.patch_embedding(long_term_history)     # B, N, d, P
-        ti_patches = ti_patches.transpose(-1, -2) # B, N, P, d
-        sp_patches = sp_patches.transpose(-1 ,-2)
+        else:
+            batch_size, num_nodes, _, _ = long_term_history.shape
+            # patchify and embed input
+            patches = self.patch_embedding(long_term_history)     # B, N, d, P
+            patches = patches.transpose(-1, -2)         # B, N, P, d
+            # positional embedding
+            patches,self.pos_mat = self.positional_encoding(patches)# B, N, P, d
+            #print(self.pos_mat.shape)
+            unmasked_token_index, masked_token_index = None, None
+            encoder_input = patches# B, N, P, d
+            if self.spatial:
+                encoder_input=encoder_input.transpose(-2,-3)# B,  P,N, d
+            hidden_states_unmasked = self.encoder(encoder_input)# B,  P,N, d/# B, N, P, d
+            if self.spatial:
+                hidden_states_unmasked=hidden_states_unmasked.transpose(-2,-3)# B, N, P, d
+            hidden_states_unmasked = self.encoder_norm(hidden_states_unmasked).view(batch_size, num_nodes, -1, self.embed_dim)# B, N, P, d
+            return hidden_states_unmasked, unmasked_token_index, masked_token_index
+        # encoding
 
-        hidden_states_ti = self.enc_2_enc_emb_ti1(ti_patches.reshape(batch_size, num_nodes, -1))
-        hidden_states_ti = self.enc_2_enc_norm_ti(hidden_states_ti)
-        hidden_states_ti = nn.ReLU()(hidden_states_ti)
-        hidden_states_ti = self.enc_2_enc_emb_ti2(hidden_states_ti)
-
-        # hidden_states_ti = self.positional_encoding_t(hidden_states_ti)
-        # hidden_states_ti = self.tiencoder2(hidden_states_ti)
-        # hidden_states_ti = self.encoder_norm2_ti(hidden_states_ti)
-
-        hidden_states_sp = self.enc_2_enc_emb_sp1(sp_patches.reshape(batch_size, tim_len, -1))
-        hidden_states_sp = self.enc_2_enc_norm_sp(hidden_states_sp)
-        hidden_states_sp = nn.ReLU()(hidden_states_sp)
-        hidden_states_sp = self.enc_2_enc_emb_sp2(hidden_states_sp)
-
-        # hidden_states_sp = self.positional_encoding_s(hidden_states_sp)
-        # hidden_states_sp = self.spencoder2(hidden_states_sp)
-        # hidden_states_sp = self.encoder_norm2_sp(hidden_states_sp)
-
-        return hidden_states_ti,hidden_states_sp
-    # , unmasked_token_index, masked_token_index
+        return hidden_states_unmasked,  unmasked_token_index, masked_token_index
     
-    def decoding(self, hidden_states_ti,hidden_states_sp):
-        """Decoding process of TSFormer: encoder 2 decoder layer, add mask tokens, Transformer layers, predict.
+    def decoding(self, hidden_states_unmasked, masked_token_index):
+
+        # encoder 2 decoder layer
+        hidden_states_unmasked = self.enc_2_dec_emb(hidden_states_unmasked)# B, N, P, d/# B,P, N,  d
+        # B,N*r,P,d
+        if True:
+            # TO WORK SPATIAL:
+            batch_size,  num_time,num_nodes, _ = hidden_states_unmasked.shape# B,P, N,  d
+            unmasked_token_index=[i for i in range(0,len(masked_token_index)+num_nodes) if i not in masked_token_index ]
+            hidden_states_masked = self.pos_mat[:,masked_token_index,:,:]# B, N*r,P,  d
+            hidden_states_masked=hidden_states_masked.transpose(-2,-3)# B, P, N*r, d
+
+            hidden_states_masked+=self.mask_token.expand(batch_size, num_time, len(masked_token_index), hidden_states_unmasked.shape[-1])# B, P, N*r, d
+            hidden_states_unmasked+=self.pos_mat[:,unmasked_token_index,:,:].transpose(-2,-3)# B,  P,N*(1-r), d
+            hidden_states_full = torch.cat([hidden_states_unmasked, hidden_states_masked], dim=-2)   # B, P, N, d
+
+            # decoding
+            hidden_states_full = self.decoder(hidden_states_full)# B, P, N, d
+            hidden_states_full = self.decoder_norm(hidden_states_full)# B, P, N, d
+            # prediction (reconstruction)
+            reconstruction_full = self.output_layer(hidden_states_full.view(batch_size,num_time, -1,  self.embed_dim))# B, P, N, L
+        return reconstruction_full
+
+    def get_reconstructed_masked_tokens(self, reconstruction_full, real_value_full, unmasked_token_index, masked_token_index):
+        """Get reconstructed masked tokens and corresponding ground-truth for subsequent loss computing.
 
         Args:
-            hidden_states_unmasked (torch.Tensor): hidden states of masked tokens [B, N, P*(1-r), d].
-            masked_token_index (list): masked token index
+            reconstruction_full (torch.Tensor): reconstructed full tokens.
+            real_value_full (torch.Tensor): ground truth full tokens.
+            unmasked_token_index (list): unmasked token index.
+            masked_token_index (list): masked token index.
 
         Returns:
-            torch.Tensor: reconstructed data
+            torch.Tensor: reconstructed masked tokens.
+            torch.Tensor: ground truth masked tokens.
         """
-        # breakpoint()
-        # B,N = hidden_states_ti.shape[0],hidden_states_ti.shape[1]
-        # L = hidden_states_sp.shape[1]
-        # hidden_states_ti = hidden_states_ti.unsqueeze(2).repeat(1,1,L,1)
-        # hidden_states_sp = hidden_states_sp.unsqueeze(1).repeat(1,N,1,1)
-        # pred = torch.cat([hidden_states_ti,hidden_states_sp],dim=-1)
-        pred = self.out(hidden_states_ti)
-        # pred2 = self.out2(hidden_states_sp)
-        return pred
-        # pred = self.decoder(memory=hidden_states_sp,tgt=hidden_states_ti)
-        # pred = self.decoder1_norm(pred)
+        # get reconstructed masked tokens
+        batch_size, num_nodes, _, _ = reconstruction_full.shape
+        reconstruction_masked_tokens = reconstruction_full[:, :, len(unmasked_token_index):, :]     # B, N, r*P, d
+        reconstruction_masked_tokens = reconstruction_masked_tokens.view(batch_size, num_nodes, -1).transpose(1, 2)     # B, r*P*d, N
 
-        # hidden_states_ti = self.decoder2(hidden_states_ti)
-        # hidden_states_ti = self.decoder2_norm(hidden_states_ti)
-
-        # pred = hidden_states_ti + pred
-        # pred = self.output_layer(pred)
-        # return pred # torch.Size([12, 500, 12, 12])
+        label_full = real_value_full.permute(0, 3, 1, 2).unfold(1, self.patch_size, self.patch_size)[:, :, :, self.selected_feature, :].transpose(1, 2)  # B, N, P, L
+        label_masked_tokens = label_full[:, :, masked_token_index, :].contiguous() # B, N, r*P, d
+        label_masked_tokens = label_masked_tokens.view(batch_size, num_nodes, -1).transpose(1, 2)  # B, r*P*d, N
+        return reconstruction_masked_tokens, label_masked_tokens
 
     def forward(self, history_data: torch.Tensor, future_data: torch.Tensor = None, batch_seen: int = None, epoch: int = None, **kwargs) -> torch.Tensor:
         """feed forward of the TSFormer.
@@ -179,23 +164,13 @@ class SimpleFormer(nn.Module):
         history_data = history_data.permute(0, 2, 3, 1)     # B, N, 1, L * P
         if self.mode == "pre-train":
             future_data = future_data.permute(0, 2 , 1 , 3)
-            hidden_states_ti,hidden_states_sp = self.encoding(history_data)
-            reconstruction_full = self.decoding(hidden_states_ti,hidden_states_sp)
+            hidden_states_unmasked, unmasked_token_index, masked_token_index = self.encoding(history_data)
+            # decoding
+            reconstruction_full = self.decoding(hidden_states_unmasked, masked_token_index)
+            # for subsequent loss computing
+            reconstruction_masked_tokens, label_masked_tokens = self.get_reconstructed_masked_tokens(reconstruction_full, history_data, unmasked_token_index, masked_token_index)
 
-            # if batch_seen is not None and batch_seen % 200 == 0 and batch_seen != 0:
-            #     with open("test-1.out",'a') as f:
-            #         print("recons:", reconstruction_full[0,:5,:],file=f)
-            #         print("future:",future_data[0,:5,:,self.selected_feature],file=f)
-            #         print("linear weight/grad:",self.enc_2_enc_emb_sp2.weight[0,:10],self.enc_2_enc_emb_sp2.weight.grad[0,:10],file=f)
-                    # print("linear2weight/grad:",self.enc_2_dec_emb_sp.weight[0,:10],self.enc_2_dec_emb_sp.weight.grad[0,:10],file=f)
-                    # print("attention weight/grad:",self.decoder.transformer_decoder.layers.multihead_attn.q_proj_weight[0,:10],
-                    #       self.decoder.transformer_decoder.layers.multihead_attn.q_proj_weight.grad[0,:10],file=f)
-
-            return reconstruction_full, future_data[:,:,:,self.selected_feature],\
-                self.saliency_proj1(hidden_states_ti), self.saliency_proj2(hidden_states_sp)
+            return reconstruction_masked_tokens, label_masked_tokens
         else:
-
-            hidden_states_ti,hidden_states_sp = self.encoding(history_data,mask=False)
-            reconstruction_full = self.decoding(hidden_states_ti,hidden_states_sp)
-
-            return hidden_states_ti,reconstruction_full
+            hidden_states_full = self.encoding(history_data,mask=False)
+            return hidden_states_full

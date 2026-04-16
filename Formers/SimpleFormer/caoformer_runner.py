@@ -3,7 +3,7 @@ import torch
 from easytorch.utils.dist import master_only
 from basicts.data.registry import SCALER_REGISTRY
 from basicts.runners import BaseTimeSeriesForecastingRunner
-from basicts.metrics import masked_mae, masked_rmse, masked_mape , PLKnce
+from basicts.metrics import masked_mae, masked_rmse, masked_mape
 
 class SimpleFormerRunner(BaseTimeSeriesForecastingRunner):
     def __init__(self, cfg: dict):
@@ -60,23 +60,18 @@ class SimpleFormerRunner(BaseTimeSeriesForecastingRunner):
             tuple: (prediction, real_value)
         """
 
-        # preprocess
-        if "StockD" in self.name:
-            future_data, history_data, _ = data
-        else :
-            future_data, history_data = data
+        future_data,history_data,label = data
+
         history_data    = self.to_running_device(history_data)      # B, L, N, C
         future_data     = self.to_running_device(future_data)       # B, L, N, C
         batch_size, length, num_nodes, _ = future_data.shape
-
         history_data    = self.select_input_features(history_data) # B,L,N,C
 
         alongTime = torch.argsort(torch.mean(history_data[:,:,:,self.target_features],dim=2),dim=1)
         alongSpace = torch.argsort(torch.mean(future_data[:,:,:,self.target_features],dim=1),dim=1)
 
-        predict_future, real_future, hidden_time ,hidden_space = self.model(history_data=history_data, future_data=future_data, batch_seen=iter_num, epoch=epoch)
-        
-        return predict_future, real_future, hidden_space, alongTime ,hidden_time, alongSpace ,iter_num
+        predict_future, real_future = self.model(history_data=history_data, future_data=future_data, batch_seen=iter_num, epoch=epoch)
+        return predict_future, real_future
 
     @torch.no_grad()
     @master_only

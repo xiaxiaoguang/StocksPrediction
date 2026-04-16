@@ -4,7 +4,7 @@ import sys
 # TODO: remove it when basicts can be installed by pip
 sys.path.append(os.path.abspath(__file__ + "/../../.."))
 from easydict import EasyDict
-from .step_loss import caoformer_loss
+from .step_loss import normal_loss
 from Formers.SimpleFormer import SimpleFormer
 from Formers.SimpleFormer.caoformer_runner import SimpleFormerRunner
 from .step_data import PretrainingDataset
@@ -13,12 +13,13 @@ from .step_data import PretrainingDataset
 CFG = EasyDict()
 
 ALLBATCH_SIZE = 16
-INPUT_LEN = 100
-OUTPUT_LEN = 5
-NUMNODES = 498
-NODE_FUSION=2
+INPUT_LEN = 12
+OUTPUT_LEN = 3
+NUMNODES = 500
+
 D_MODEL = 128
-D_MODEL2 = 256
+IN_CHANNEL = list(range(1))
+
 # ================= general ================= #
 CFG.DATASET_NAME = "csi500"
 CFG.DESCRIPTION = f"TSFormer({CFG.DATASET_NAME}) configuration"
@@ -41,29 +42,26 @@ CFG.MODEL.NAME = "SimpleFormer"
 CFG.MODEL.ARCH = SimpleFormer
 CFG.MODEL.PARAM = {
     "patch_size":OUTPUT_LEN,
-    "node_fusion":NODE_FUSION,
     "embed_dim":D_MODEL,
-    "embed_dim2":D_MODEL2,
+    "in_channel":len(IN_CHANNEL),
     "num_heads":2,
     "mlp_ratio":4,
     "dropout":0.1,
     "num_token":INPUT_LEN//OUTPUT_LEN,
-    "num_nodes":NUMNODES//NODE_FUSION,
-    "encoder1_depth":2,
-    "encoder2_depth":2,
+    "encoder_depth":3,
     "decoder_depth":1,
-    "selected_feature":1, #这里需要尝试
+    "selected_feature":0, #这里需要尝试
     "pred_len":OUTPUT_LEN,
     "mode":"pre-train",
 }
-CFG.MODEL.FORWARD_FEATURES = list(range(45))
-CFG.MODEL.TARGET_FEATURES = [1]
+CFG.MODEL.FORWARD_FEATURES = IN_CHANNEL
+CFG.MODEL.TARGET_FEATURES = [0]
 
 # ================= optim ================= #
 CFG.TRAIN = EasyDict()
 CFG.TRAIN.NUM_EPOCHS = 96
 
-CFG.TRAIN.LOSS = caoformer_loss
+CFG.TRAIN.LOSS = normal_loss
 CFG.TRAIN.OPTIM = EasyDict()
 CFG.TRAIN.OPTIM.TYPE = "Adam"
 CFG.TRAIN.OPTIM.PARAM= {

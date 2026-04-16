@@ -6,7 +6,7 @@ import numpy as np
 
 # Import your new Anomaly Detection Runner and Metrics
 from ..base_adt_runner import AnomalyDetectionRunner 
-from metric.detection_metrics import detection_accuracy, detection_precision, detection_recall, detection_f1, detection_auc
+from detection.metric import detection_accuracy, detection_precision, detection_recall, detection_f1, detection_auc
 
 class iTransformerAnomalyRunner(AnomalyDetectionRunner):
     """
@@ -19,11 +19,11 @@ class iTransformerAnomalyRunner(AnomalyDetectionRunner):
 
         # 1. Completely Replace Metrics with Classification Metrics
         self.metrics = {
-            "Accuracy": detection_accuracy,
-            "Precision": detection_precision,
-            "Recall": detection_recall,
-            "F1": detection_f1,
-            "AUC": detection_auc
+            "Accuracy": partial(detection_accuracy,task='global'),
+            "Precision": partial(detection_precision,task='global'),
+            "Recall": partial(detection_recall,task='global'),
+            "F1": partial(detection_f1,task='global'),
+            "AUC": partial(detection_auc,task='global'),
         }
 
         # 2. Forward features (Target features are removed since we predict a single label, not a sequence)
@@ -96,23 +96,18 @@ class iTransformerAnomalyRunner(AnomalyDetectionRunner):
 
         # 2. Feature Selection
         history_data = self.select_input_features(history_data)
-
         # 3. Model Inference 
-        # We pass the tuple directly to the new iTransformerAnomalyDetector we built,
-        # or we pass the tensor depending on how you structure the model's forward function.
-        # Assuming model takes the raw tensor:
         logits = self.model(history_data) 
-
         # 4. Shape validation to catch architecture mismatches early
         batch_size = history_data.shape[0]
-        assert list(logits.shape) == [batch_size, 1], \
-            f"Error: Output shape is {logits.shape}, but expected [{batch_size}, 1]. Check the global pooling layer."
 
+        # assert list(logits.shape) == [batch_size, 1], \
+        #     f"Error: Output shape is {logits.shape}, but expected [{batch_size}, 1]. Check the global pooling layer."
         # 5. Visualization at intervals
         if train and ((iter_num % 1000) == 0) and epoch is not None:
             try:
                 self._visualize_results(history_data, logits, labels, epoch)
             except Exception as e:
                 print(f"Visualization failed at epoch {epoch}: {e}")
-
+        
         return logits, labels

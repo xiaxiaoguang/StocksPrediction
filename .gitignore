@@ -1,6 +1,10 @@
 checkpoints/
-datasets/
+*.pkl
+*.csv
+*.pdf
+datasets/raw_data/
 ZRecord/
 application/
 test/
 *.zip
+*.pyc

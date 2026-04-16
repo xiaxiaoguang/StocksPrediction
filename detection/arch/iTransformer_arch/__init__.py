@@ -1,3 +1,3 @@
-from .iTransformer_arch import iTransformer
+from .iTransformer_arch import iTransformerAnomalyDetector
 
-__all__ = ["iTransformer"]
+__all__ = ["iTransformerAnomalyDetector"]

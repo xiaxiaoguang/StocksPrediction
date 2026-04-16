@@ -1,0 +1,14 @@
+data | test/val/length | train step | numNodes | date range
+- | - | - | - | -
+data_in16_out1 | 244 | 1 | 500 | 05-24
+data_in22_out1 | 488 | 1 | 1000 |05-24
+data_in22_out2 | 244 | 1 | 500 |05-24
+dat_in22_out5 | 244 | 1 | 500 | 05-24
+
+data_in800_out16 | 244 | 1 | 500 |05-24
+data_in804_out1 | 244 | 1 | 1000 |05-24
+data_in804_out12 | 244 | 1 | 1000 |05-24
+
+data_in1320_out1 | 488 | 1 | 1000 |05-24
+data_in1008_out16 | 244 | 1 | 1000| 05-24
+data_in1008_out12 | 244 | 1 | 1000| 05-24

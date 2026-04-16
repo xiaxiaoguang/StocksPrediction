@@ -57,12 +57,14 @@ def tsformer_loss(prediction, real_value, null_val=np.nan):
     return loss_pred
 
 def caoformer_loss(predict_future, real_future, hidden_time, alongTime,hidden_space,alongSpace, epoch = 0,null_val=np.nan):
-    loss_1 = masked_mae(predict_future,real_future)+masked_rmse(predict_future,real_future)
-    loss_2_ti = PLKnce(hidden_time,alongTime)
-    loss_2_sp = PLKnce(hidden_space,alongSpace)
-    if epoch % 200 == 0:
-        print(loss_2_ti,loss_2_sp)
-    return loss_1 + loss_2_ti + loss_2_sp
+    loss_1 = masked_mae(predict_future,real_future)
+    # +masked_rmse(predict_future,real_future)
+    # loss_2_ti = PLKnce(hidden_time,alongTime)
+    # loss_2_sp = PLKnce(hidden_space,alongSpace)
+    # if epoch % 200 == 0:
+    #     print(loss_2_ti,loss_2_sp)
+    # return loss_1 + loss_2_ti + loss_2_sp
+    return loss_1
 
 def smtsf_loss(prediction1, real_value1,prediction2,real_value2, null_val=np.nan):
     loss_pred = tsformer_loss(prediction1,real_value1) + tsformer_loss(prediction2,real_value2)
