@@ -145,7 +145,6 @@ def visualize_dataset_distribution(
             # Calculate actual future profit (holding for z_f steps)
             future_idx = min(T + z_f, total_len - 1)
             is_earn = market_avg[future_idx] > market_avg[T]
-            # breakpoint()
             if labels['global'][T][0] == 1.0:
                 if is_earn: pos_earn.add(T)
                 else:       pos_loss.add(T)
@@ -291,7 +290,6 @@ def visualize_exact_test(
 
     time_label_pairs = [(t, labels[t][0], labels2[t]) for t in test_times]
     time_label_pairs.sort(key=lambda x: x[0])
-    # breakpoint()
     sorted_times = [pair[0] for pair in time_label_pairs]
     sorted_labels = [pair[1] for pair in time_label_pairs]
     sorted_labels_local = [pair[2] for pair in time_label_pairs]
@@ -311,11 +309,9 @@ def visualize_exact_test(
     actually_traded_indices = []
     transactions = 1-1e-4
     L = len(sorted_times)
-    u = 0
-    T = 50
     np.random.seed(42)
     for i, T in enumerate(sorted_times):
-        future_idx = min(T + z_f, len(raw_prices) - 1)
+        future_idx = T + z_f
         
         # --- A. PROCESS UNLOCKS (Time passing) ---
         # Any trade that finished its z_f period gets returned to cash today
@@ -343,22 +339,19 @@ def visualize_exact_test(
         # --- C. CALCULATE MARKET RETURN FOR THIS WINDOW ---
         p_t = raw_prices[T]
         p_future = raw_prices[future_idx]
-        
         active_mask = (np.abs(p_t) > 1e-6) & (sorted_labels_local[i] == 1)
-
         safe_p_t = np.where(active_mask, p_t, np.ones_like(p_t))
-        stock_returns = np.where(active_mask, (p_future - p_t) / safe_p_t, np.zeros_like(p_t))            
+        stock_returns = np.where(active_mask, (p_future - p_t) / safe_p_t, np.zeros_like(p_t))
         active_count = np.sum(active_mask)
         t_return = np.sum(stock_returns) / active_count if active_count > 0 else 0.0
         t_return = np.abs(t_return) * 0.1
-
+        # breakpoint()
         # if np.random.rand() < 0.55:
         #     t_return = np.abs(t_return)
         # else :
         #     t_return = -np.abs(t_return)
         # --- D. EXECUTE NEW TRADES ---
         # We invest 1/z_f (e.g., 20%) of our *Total Wealth*, but capped by available cash
-        
         # Buy & Hold Logic (Constantly buying every step)
         bh_invest_amt = min(bh_cash, bh_current_wealth / z_f)
         if bh_invest_amt > 0:
@@ -457,7 +450,9 @@ def visualize_exact_test_backtest(
         with open(f'{data_dir}/data_anomaly{suffix}.pkl', 'rb') as f:
             scaled_data = pickle.load(f)['processed_data']
         with open(f'{data_dir}/label_anomaly{suffix}.pkl', 'rb') as f:
-            labels = pickle.load(f)['processed_data']['global']
+            labels = pickle.load(f)['processed_data']
+            labels2 = labels['local']
+            labels = labels['global']
         with open(f'{data_dir}/index_anomaly{suffix}.pkl', 'rb') as f:
             indices = pickle.load(f)
         with open(f'{data_dir}/scaler_anomaly{suffix}.pkl', 'rb') as f:
@@ -480,11 +475,12 @@ def visualize_exact_test_backtest(
         return
         
     test_times = [end_idx for _, end_idx in test_indices]
-    time_label_pairs = [(t, labels[t][0]) for t in test_times]
+    time_label_pairs = [(t, labels[t][0], labels2[t]) for t in test_times]
     time_label_pairs.sort(key=lambda x: x[0])
     
     sorted_times = [pair[0] for pair in time_label_pairs]
     sorted_labels = [pair[1] for pair in time_label_pairs]
+    sorted_labels_local = [pair[2] for pair in time_label_pairs]
 
     # 3. Calculate EXACT z_f forward returns WITH CAPITAL LOCK-UP
     market_returns_realized = []
@@ -496,15 +492,15 @@ def visualize_exact_test_backtest(
     
     # Track executed trades for plotting
     actually_traded_indices = []
-    transactions = 1 - 1e-4
+
     for i, T in enumerate(sorted_times):
-        future_idx = min(T + z_f, len(raw_prices) - 1)
+        future_idx = T + z_f
         
         p_t = raw_prices[T]
         p_future = raw_prices[future_idx]
         
         # Apply the exact masking logic from your dataloader
-        active_mask = np.abs(p_t) > 1e-6
+        active_mask = (np.abs(p_t) > 1e-6) & (sorted_labels_local[i] == 1)
         safe_p_t = np.where(active_mask, p_t, np.ones_like(p_t))
         stock_returns = np.where(active_mask, (p_future - p_t) / safe_p_t, np.zeros_like(p_t))
         
@@ -549,7 +545,7 @@ def visualize_exact_test_backtest(
     
     # Highlights
     active_trades = np.array(actually_traded_indices)
-    skipped_trades = np.array([i for i in range(len(sorted_times)) if i not in actually_traded_indices])
+    # skipped_trades = np.array([i for i in range(len(sorted_times)) if i not in actually_traded_indices])
     
     # if len(active_trades) > 0:
     #     plt.scatter(active_trades, strat_wealth[active_trades], color='lime', s=40, edgecolors='black', label='Executed Trade', zorder=5)
@@ -577,7 +573,6 @@ def visualize_exact_test_backtest(
     print(f"Holding Period (z_f):           {z_f} days")
     print(f"Total Evaluated Sequence Steps: {len(sorted_times)}")
     print(f"Actual Executed Trades:         {len(active_trades)}")
-    print(f"Skipped Steps:                  {len(skipped_trades)}")
     print("-" * 50)
     print(f"Buy & Hold Final Return:        {final_bh:.2f}%")
     print(f"Oracle Strategy Final Return:   {final_strat:.2f}%")

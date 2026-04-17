@@ -7,4 +7,6 @@ from .iMamba2_arch import iMamba2AnomalyDetector
 from .iRNN_arch import iRNNAnomalyDetector
 from .stdmae_arch import STDMAE
 
-__all__=['iTransformerAnomalyDetector','iTransformer2AnomalyDetector','iMambaAnomalyDetector','iMamba2AnomalyDetector','iRNNAnomalyDetector', 'STDMAE']
+from .NumerMoe_arch import NumerMoe
+
+__all__=['iTransformerAnomalyDetector','iTransformer2AnomalyDetector','iMambaAnomalyDetector','iMamba2AnomalyDetector','iRNNAnomalyDetector', 'STDMAE', 'NumerMoe']

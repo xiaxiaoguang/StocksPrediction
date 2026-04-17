@@ -7,35 +7,31 @@ import torch
 from easydict import EasyDict
 from basicts.utils.serialization import load_adj
 
-from .arch import iMamba2AnomalyDetector
+from .arch import NumerMoe
 from .runner import iTransformer2AnomalyRunner
 from .loss import MultiObjectiveDetectionLoss
 from .data import AnomalyDetectionDataset
 
 CFG = EasyDict()
 CFG.TRAIN = EasyDict()
-CFG.NOTE = {"Anomaly Detection , new detector1"}
+CFG.NOTE = {"NumerMoe2"}
 
 CFG.TEST_ONLY = False
 # CFG.TEST_ONLY = True
-# CFG.TRAIN.CKPT_SAVE_DIR = "/home/benyan2023/workspace/STEP/STEP/checkpoints/iMamba2AnomalyDetector_100/"
-# CFG.MD5 = "9dc5dc5dff14c072a8b89c4974428f40"
+# CFG.TRAIN.CKPT_SAVE_DIR = "/home/benyan2023/workspace/STEP/STEP/checkpoints/NumerMoe_100/"
+# CFG.MD5 = "c2d690c7ed349a154a77cd6dd41e294a"
 
 # ================= general ================= #
-CFG.DESCRIPTION = "iMamba2 (AD) configuration"
+CFG.DESCRIPTION = "NumerMoe (AD) configuration"
 CFG.RUNNER = iTransformer2AnomalyRunner
 CFG.DATASET_CLS = AnomalyDetectionDataset
 CFG.DATASET_NAME = "Minute_Origin_dataA"
 CFG.DATASET_TYPE = "Finance data"
 
-
-ALL_BATCH_SIZE = 128
 SEQ_LEN = 24
-OUT_LEN  = 1
-EMBED_DIM = 64
-D_STATE = 16
-D_CONV = 4
-expand = 2
+ALL_BATCH_SIZE = 128
+OUT_LEN  = 48
+EMBED_DIM = 48
 
 CFG.DATAPARAM = {
     "seq_len": SEQ_LEN,
@@ -43,8 +39,7 @@ CFG.DATAPARAM = {
     "x_h": 0.2, "x_f": 0.3,
     "y_h": 2, "y_f": 3,
     "z_h": 1, "z_f": 1,
-    "pos_local": 70.43, "pos_global":4.68,
-
+    "pos_local": 66.127184669682, "pos_global":4.6526589810338415,
 }
 CFG.DATASET_INPUT_LEN = SEQ_LEN
 CFG.DATASET_OUTPUT_LEN = OUT_LEN
@@ -58,17 +53,28 @@ CFG.ENV.CUDNN.ENABLED = True
 
 # ================= model ================= #
 CFG.MODEL = EasyDict()
-CFG.MODEL.NAME = "iMamba2AnomalyDetector"
-CFG.MODEL.ARCH = iMamba2AnomalyDetector
+CFG.MODEL.NAME = "NumerMoe"
+CFG.MODEL.ARCH = NumerMoe
+
 CFG.MODEL.PARAM = {
-    "seq_len":SEQ_LEN ,
-    "d_model":EMBED_DIM,
-    "dropout":0.5,
-    "d_state" :D_STATE,
-    "d_conv"   :D_CONV,
-    "expand": expand,
-    "e_layers":4,
-    "use_norm":True,
+    "tim_configs":{
+        'seq_len':SEQ_LEN,
+        'pre_len':OUT_LEN,
+        'input_dim':1,
+        'd_model':[64,16],
+        "n_layer":2,
+        "dropout":0.5,
+        "patch_level":-1,
+    },
+
+    "spc_configs":{
+        'd_model':OUT_LEN * 2,
+        'n_heads': 4,
+        'num_layers':3,
+        'num_experts':4,
+        'top_k':2,
+        'd_ff':256,
+    }
 }
 
 CFG.MODEL.FORWARD_FEATURES = None

@@ -14,7 +14,7 @@ from .data import AnomalyDetectionDataset
 
 CFG = EasyDict()
 CFG.TRAIN = EasyDict()
-CFG.NOTE = {"Anomaly Detection , new detector1"}
+CFG.NOTE = {"Anomaly Detection , new detector, new datasets"}
 
 CFG.TEST_ONLY = False
 # CFG.TEST_ONLY = True
@@ -28,19 +28,19 @@ CFG.DATASET_CLS = AnomalyDetectionDataset
 CFG.DATASET_NAME = "Minute_Origin_dataA"
 CFG.DATASET_TYPE = "Finance data"
 
-CFG.DATAPARAM = {
-    "seq_len": 12,
-    "num_anomalies": 0,
-    "x_h": 0.3, "x_f": 0.3,
-    "y_h": 3, "y_f": 3,
-    "z_h": 1, "z_f": 1,
-    "pos_local": 70.43, "pos_global":4.68,
-}
-
+SEQ_LEN = 24
 ALL_BATCH_SIZE = 64
-SEQ_LEN = 12
 OUT_LEN  = 1
-EMBED_DIM = 32
+EMBED_DIM = 48
+
+CFG.DATAPARAM = {
+    "seq_len": SEQ_LEN,
+    "num_anomalies": 0,
+    "x_h": 0.2, "x_f": 0.3,
+    "y_h": 2, "y_f": 3,
+    "z_h": 1, "z_f": 1,
+    "pos_local": 66.127184669682, "pos_global":4.6526589810338415,
+}
 
 CFG.DATASET_INPUT_LEN = SEQ_LEN
 CFG.DATASET_OUTPUT_LEN = OUT_LEN

@@ -23,7 +23,6 @@ class AnomalyDetectionDataset(Dataset):
         # 1. Read raw data (normalized features)
         data = load_pkl(data_file_path)
         self.data = torch.from_numpy(data["processed_data"]).float()
-
         # 2. Read binary labels
         label_data = load_pkl(label_file_path)["processed_data"]
         # self.label = torch.from_numpy(label_data).float() 
@@ -35,7 +34,8 @@ class AnomalyDetectionDataset(Dataset):
         
         self.local_ratio = label_data['local'].sum() / (label_data['local'].shape[0] * label_data['local'].shape[1])
         self.global_ratio = label_data['global'].sum() / (label_data['global'].shape[0] * label_data['global'].shape[1])
-        print('local and global ratio : ',self.local_ratio,self.global_ratio)
+        print('local and global ratio : ',self.local_ratio,self.global_ratio,(1-self.local_ratio)/self.local_ratio,(1-self.global_ratio)/self.global_ratio)
+
         self.index = load_pkl(index_file_path)[mode]
         
         # The length of the sequence is dynamically inferred
@@ -71,7 +71,6 @@ class AnomalyDetectionDataset(Dataset):
         
         # History fed to the model (Shape: Seq_Len x N x 1)
         history_data = self.data[start_idx:pivot_idx]
-        
         # Target Label at the pivot point (Shape: 1)
         # label = self.label[pivot_idx]
         label = {
@@ -99,7 +98,6 @@ class AnomalyDetectionDataset(Dataset):
             active_mask = torch.abs(p_t) > 1e-6
             safe_p_t = torch.where(active_mask, p_t, torch.ones_like(p_t))
             stock_returns = torch.where(active_mask, (p_future - p_t) / safe_p_t, torch.zeros_like(p_t))
-            
             return history_data, label, stock_returns
         else :
             return history_data, label

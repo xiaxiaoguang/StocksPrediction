@@ -1,0 +1,8 @@
+
+
+iTransformer val_Accuracy: 0.4334, val_F1: 0.2363, val_AUC: 0.7513, val_Local_Accuracy: 0.7777, val_Local_Precision: 0.0683, val_Local_Recall: 0.7007, val_Local_F1: 0.1243, val_Local_AUC: 0.7389
+iMamba val_Accuracy: 0.4970, val_F1: 0.2533, val_AUC: 0.7670, val_Local_Accuracy: 0.7711, val_Local_Precision: 0.0669, val_Local_Recall: 0.7109, val_Local_F1: 0.1223, val_Local_AUC: 0.7415
+
+iTransformer test_Accuracy: 0.4476, test_F1: 0.1948, test_AUC: 0.7037, test_Local_Accuracy: 0.7444, test_Local_Precision: 0.0411, test_Local_Recall: 0.6406, test_Local_F1: 0.0773, test_Local_AUC: 0.7472
+iMamba test_Accuracy: 0.5131, test_F1: 0.1986, test_AUC: 0.6915, test_Local_Accuracy: 0.7365, test_Local_Precision: 0.0449, test_Local_Recall: 0.7290, test_Local_F1: 0.0846, test_Local_AUC: 0.7748
+

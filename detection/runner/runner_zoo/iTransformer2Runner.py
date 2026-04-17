@@ -97,16 +97,14 @@ class iTransformer2AnomalyRunner(AnomalyDetectionRunner):
         history_data = self.to_running_device(history_data)  # [B, L, N, C]
         labels['global'] = self.to_running_device(labels['global'])              # [B, N]
         labels['local'] = self.to_running_device(labels['local'])              # [B, N]
-
         # 2. Feature Selection
-        history_data = self.select_input_features(history_data)
+        # history_data = self.select_input_features(history_data)
         # 3. Model Inference 
         logits = self.model(history_data) 
         # 4. Shape validation to catch architecture mismatches early
         batch_size = history_data.shape[0]
         # assert list(logits.shape) == [batch_size, 1], \
         #     f"Error: Output shape is {logits.shape}, but expected [{batch_size}, 1]. Check the global pooling layer."
-
         # # 5. Visualization at intervals
         if train and ((iter_num % 1000) == 0) and epoch is not None:
             try:

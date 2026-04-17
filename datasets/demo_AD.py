@@ -33,34 +33,30 @@ def create_stock_data_numpy(save_folder_path, stock_list=None):
     available_files = [f for f in os.listdir(save_folder_path) if f.endswith('.pkl')]
     
     # 2. Create a mapping of { '6_digit_prefix': 'full_filename.pkl' }
-    # This handles the suffix difference (XSHE vs SZ)
     file_prefix_map = {f.split('.')[0]: f for f in available_files}
 
     if stock_list is None:
-        # If no list provided, just use all available files
         matched_files = available_files
     else:
-        # Extract prefixes from your CSI300 list (e.g., "000001.SZ" -> "000001")
         requested_prefixes = [s.split('.')[0] for s in stock_list]
-        # Find which requested stocks actually exist in the minute-level folder
-        matched_files = []
-        for pref in requested_prefixes:
-            if pref in file_prefix_map:
-                matched_files.append(file_prefix_map[pref])
-            else:
-                # Optional: print(f"Warning: Stock prefix {pref} not found in minute data.")
-                pass
+        matched_files = [file_prefix_map[p] for p in requested_prefixes if p in file_prefix_map]
 
     all_series = []
     valid_stocks = []
-    # breakpoint()
-    for file_name in tqdm(matched_files):
+    
+    for file_name in tqdm(matched_files, desc="Loading stocks"):
         file_path = os.path.join(save_folder_path, file_name)
         stock_name = file_name.replace('.pkl', '')
+        
         try:
             df = joblib.load(file_path)
             if 'close' in df.columns:
-                # Ensure the index is datetime for proper alignment during pd.concat
+                # Ensure the index is a DatetimeIndex
+                if not isinstance(df.index, pd.DatetimeIndex):
+                    df.index = pd.to_datetime(df.index)
+                df.index = df.index.floor('min')
+                df = df[~df.index.duplicated(keep='last')]
+                df = df.sort_index()
                 price_series = df['close']
                 all_series.append(price_series)
                 valid_stocks.append(stock_name)
@@ -69,13 +65,20 @@ def create_stock_data_numpy(save_folder_path, stock_list=None):
 
     if not all_series:
         print("No valid data found.")
-        return None, []
-
+        return None
+        
+    print("Aligning time steps across all stocks...")
     combined_df = pd.concat(all_series, axis=1, keys=valid_stocks)
+    
+    # 4. Sort the master index to guarantee strict time-step order
+    combined_df = combined_df.sort_index()
     combined_df = combined_df.ffill().fillna(0)
+    
+    # 6. Convert to Numpy array with shape (L, N, 1)
     data_bnl = combined_df.values[:, :, np.newaxis]
     print(f"Data prepared. Shape: {data_bnl.shape} (Timesteps, Stocks, Features)") 
     return data_bnl
+
 
 def inject_whale_anomalies(data_bnl, num_anomalies=100, z_window=5, 
                                         intensity_range=(0.05, 0.10), stock_ratio_range=(0.1, 0.4)):
@@ -307,6 +310,8 @@ def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=50
                     pos_pool.append(i) 
                 else:
                     neg_pool.append(i) 
+            elif augment == False:
+                neg_pool.append(i)
 
         if not pos_pool or not neg_pool:
             print(f"Warning: Missing classes in range {start_idx}-{end_idx}. Proceeding without balancing.")
@@ -328,7 +333,7 @@ def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=50
 
     idx = {'train': [], 'valid': [], 'test': []}
 
-    train_end_start_idx = L - seq_len - z_f
+    train_end_start_idx = L - seq_len - z_f - testl - embargo - validl
     idx['train'] = filter_and_balance(0, train_end_start_idx, augment=True)
 
     test_start = (2 * L) - testl - z_f - seq_len
@@ -338,7 +343,7 @@ def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=50
     if valid_start < L:
          raise ValueError(f"validl/testl bleed into synthetic data at {valid_start}!")
     idx['valid'] = filter_and_balance(valid_start, valid_start + validl, augment=balance_eval)
-    print(f"range train {train_end_start_idx} test {test_start} valid {valid_start}")
+    print(f"range train {train_end_start_idx} test {test_start,testl} valid {valid_start,validl}")
 
     # --- PHASE 6: SAVE FILES ---
     os.makedirs(save_path, exist_ok=True)
@@ -581,24 +586,22 @@ def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=50
 class ParametersForAD:
     # 1. Dataset/Sequence Params
     seq_len: int = 24
-    num_anomalies: int = 1000
+    num_anomalies: int = 0
     
-    # 2. History Thresholds (his)
     x_h: float = 0.2
     y_h: float = 2
     z_h: int = 1
     
-    # 3. Future Thresholds (fut)
     x_f: float = 0.3
     y_f: float = 3
-    z_f: int = 3
+    z_f: int = 1
 
-    # 2. History Thresholds (his)
+    # # 2. History Thresholds (his)
     # x_h: float = 0
     # y_h: float = 0
     # z_h: int = 1
     
-    # # 3. Future Thresholds (fut)
+    # # # 3. Future Thresholds (fut)
     # x_f: float = 0
     # y_f: float = 0
     # z_f: int = 1
@@ -629,21 +632,23 @@ else :
 
 
 if __name__ == "__main__":
-    # features = create_stock_data_numpy(save_path, stock_list)
-    with open("/home/benyan2023/workspace/STEP/STEP/datasets/Minute_Origin_dataA/data_anomaly_12_0_his0_0_1_fut0_0_1_.pkl", 'rb') as f:
-        features = pickle.load(f)['processed_data']
-    with open("/home/benyan2023/workspace/STEP/STEP/datasets/Minute_Origin_dataA/scaler_anomaly_12_0_his0_0_1_fut0_0_1_.pkl", 'rb') as f:
-        label = pickle.load(f)['args']
-    tl = features.shape[0] // 2
-    features = features[:tl,:]
-    features = features * label['std'] + label['mean']
+    features = create_stock_data_numpy(save_path, stock_list)
+
+    # with open("/home/benyan2023/workspace/STEP/STEP/datasets/Minute_Origin_dataA/data_anomaly_24_0_his0.2_2_1_fut0.3_3_1_.pkl", 'rb') as f:
+    #     features = pickle.load(f)['processed_data']
+    # with open("/home/benyan2023/workspace/STEP/STEP/datasets/Minute_Origin_dataA/scaler_anomaly_24_0_his0.2_2_1_fut0.3_3_1_.pkl", 'rb') as f:
+    #     label = pickle.load(f)['args']
+    # tl = features.shape[0] // 2
+    # features = features[:tl,:]
+    # features = features * label['std'] + label['mean']
+    
     save_path2 = name + 'A'
     generate_enhanced_anomaly_datasets(
         features, 
         save_path2, 
         seq_len=cfg.seq_len, 
-        testl=0.2,
-        validl=0.1,
+        testl=0.1,
+        validl=0.05,
         whale_params={
             'num_anomalies': cfg.num_anomalies, 
             'z_window': 2, # or z_window2

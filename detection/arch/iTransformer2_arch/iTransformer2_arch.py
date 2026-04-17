@@ -53,10 +53,7 @@ class iTransformer2AnomalyDetector(nn.Module):
             stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
             x_enc /= stdev
 
-        # Embedding
-        # B L N -> B N E
         enc_out = self.enc_embedding(x_enc) 
-        # B N E -> B N E
         enc_out, _ = self.encoder(enc_out, attn_mask=None)
         # Final Classification
         logits_local = self.detector(enc_out).squeeze(-1) # [B, N]

@@ -168,8 +168,7 @@ class AnomalyDetectionRunner(BaseRunner):
             all_logits['local'] = []
             all_labels['local'] = []
             
-        all_returns = [] 
-
+        all_returns = []
         # 1. Collect Predictions and Actual Returns
         for _, data in enumerate(self.test_data_loader):
             inputs, labels, forward_returns = data 
@@ -189,7 +188,6 @@ class AnomalyDetectionRunner(BaseRunner):
                 all_labels['global'].append(labels)
                 
             all_returns.append(forward_returns)
-
         # Concatenate everything
         all_logits['global'] = torch.cat(all_logits['global'], dim=0)
         all_labels['global'] = torch.cat(all_labels['global'], dim=0)
@@ -210,8 +208,8 @@ class AnomalyDetectionRunner(BaseRunner):
         else:
             probs = torch.sigmoid(all_logits['global']).cpu()
             preds = (probs > 0.5).float()
-            targets = all_labels['global'].float().cpu()
             
+            targets = all_labels['global'].float().cpu()
             for metric_name, metric_func in self.metrics.items():
                 if metric_name == "AUC":
                     metric_val = metric_func(probs, targets)
@@ -230,7 +228,6 @@ class AnomalyDetectionRunner(BaseRunner):
         
         # The mathematical edge of a 55% win rate machine: 0.55 - 0.45 = 0.10
         oracle_edge = 0.10 
-
         # Initialize Trackers: Baseline (trade everything) vs Model (trade only anomalies)
         base_cash, model_cash = 1.0, 1.0
         base_active_trades, model_active_trades = [], []
@@ -243,7 +240,6 @@ class AnomalyDetectionRunner(BaseRunner):
         # RESTORED: Track average stocks held
         total_base_stocks_held = 0
         total_model_stocks_held = 0
-
         # Pre-compute Model Anomaly Selections
         if use_local:
             local_probs = torch.sigmoid(all_logits['local']).cpu().numpy()
@@ -252,6 +248,7 @@ class AnomalyDetectionRunner(BaseRunner):
             global_probs = torch.sigmoid(all_logits['global']).cpu().numpy().flatten()
             model_positions = (global_probs > 0.5).astype(float)
         kill = 0
+        
         for t in range(Total_B):
             # --- A. Process Unlocks ---
             still_active_base = []
@@ -303,7 +300,6 @@ class AnomalyDetectionRunner(BaseRunner):
                         self.logger.info(f"in minute {t} we trade {np.where(selected_mask)}")
                         kill += 1
                     t_model_return = np.mean(oracle_edge * np.abs(selected_returns))
-                    
             else:
                 # Global Logic (Trading the Market Index)
                 active_count = np.sum(active_mask)
@@ -319,7 +315,6 @@ class AnomalyDetectionRunner(BaseRunner):
                     model_active_days += 1
                     market_return = np.mean(all_returns[t][active_mask])
                     t_model_return = oracle_edge * np.abs(market_return)
-
             # --- D. Execute Trades ---
             unlock_t = t + z_f 
             
@@ -353,7 +348,6 @@ class AnomalyDetectionRunner(BaseRunner):
         
         base_wealth_history.append(final_base_wealth)
         model_wealth_history.append(final_model_wealth)
-
         # 4. Calculate Shared Metrics
         def calc_metrics(wealth_history, returns_recorded, active_days):
             wealth_arr = np.array(wealth_history)
@@ -370,7 +364,6 @@ class AnomalyDetectionRunner(BaseRunner):
             
             exposure = active_days / Total_B if Total_B > 0 else 0
             return cum_return, sharpe, max_dd, exposure
-
         base_cum, base_sharpe, base_dd, base_exp = calc_metrics(base_wealth_history, base_returns_recorded, base_active_days)
         mod_cum, mod_sharpe, mod_dd, mod_exp = calc_metrics(model_wealth_history, model_returns_recorded, model_active_days)
 
