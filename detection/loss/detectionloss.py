@@ -46,13 +46,13 @@ class MultiObjectiveDetectionLoss(nn.Module):
     def forward(self, preds: dict, targets: dict, **kwargs):
         """
         Expects preds and targets to be dictionaries containing:
-        - 'global': Tensor of shape [B, 1]
+        - 'global': Tensor of shape [B, 1]`
         - 'local': Tensor of shape [B, N]
         """
         # 1. Global Trend Loss
         logits_g = preds['global']
         labels_g = targets['global'].float()
-        
+
         if self.loss_global.pos_weight is not None:
             self.loss_global.pos_weight = self.loss_global.pos_weight.to(logits_g.device)
             
@@ -61,7 +61,7 @@ class MultiObjectiveDetectionLoss(nn.Module):
         # 2. Individual Stocks Loss
         logits_l = preds['local']
         labels_l = targets['local'].float()
-        
+
         if self.loss_local.pos_weight is not None:
             self.loss_local.pos_weight = self.loss_local.pos_weight.to(logits_l.device)
             

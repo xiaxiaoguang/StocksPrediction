@@ -29,18 +29,12 @@ CFG.DATASET_NAME = "Minute_Origin_dataA"
 CFG.DATASET_TYPE = "Finance data"
 
 SEQ_LEN = 24
-ALL_BATCH_SIZE = 64
+ALL_BATCH_SIZE = 128
 OUT_LEN  = 1
-EMBED_DIM = 48
+EMBED_DIM = 64
 
-CFG.DATAPARAM = {
-    "seq_len": SEQ_LEN,
-    "num_anomalies": 0,
-    "x_h": 0.2, "x_f": 0.3,
-    "y_h": 2, "y_f": 3,
-    "z_h": 1, "z_f": 1,
-    "pos_local": 66.127184669682, "pos_global":4.6526589810338415,
-}
+from .NumerMoe_AD import DATAPARAM
+CFG.DATAPARAM = DATAPARAM
 
 CFG.DATASET_INPUT_LEN = SEQ_LEN
 CFG.DATASET_OUTPUT_LEN = OUT_LEN

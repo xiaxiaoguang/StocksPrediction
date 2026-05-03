@@ -37,7 +37,7 @@ class AnomalyDetectionDataset(Dataset):
         print('local and global ratio : ',self.local_ratio,self.global_ratio,(1-self.local_ratio)/self.local_ratio,(1-self.global_ratio)/self.global_ratio)
 
         self.index = load_pkl(index_file_path)[mode]
-        
+
         # The length of the sequence is dynamically inferred
         first_idx = self.index[0]
         self.seq_len = first_idx[1] - first_idx[0]

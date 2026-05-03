@@ -310,9 +310,9 @@ def visualize_exact_test(
     transactions = 1-1e-4
     L = len(sorted_times)
     np.random.seed(42)
+
     for i, T in enumerate(sorted_times):
         future_idx = T + z_f
-        
         # --- A. PROCESS UNLOCKS (Time passing) ---
         # Any trade that finished its z_f period gets returned to cash today
         still_active_bh = []
@@ -336,6 +336,9 @@ def visualize_exact_test(
         # (We use cost basis here so we don't cheat by looking at future returns early)
         bh_current_wealth = bh_cash + sum(t['basis'] for t in bh_active_trades)
         strat_current_wealth = strat_cash + sum(t['basis'] for t in strat_active_trades)
+        # print(bh_current_wealth)
+        # print(strat_current_wealth)
+
         # --- C. CALCULATE MARKET RETURN FOR THIS WINDOW ---
         p_t = raw_prices[T]
         p_future = raw_prices[future_idx]
@@ -345,11 +348,6 @@ def visualize_exact_test(
         active_count = np.sum(active_mask)
         t_return = np.sum(stock_returns) / active_count if active_count > 0 else 0.0
         t_return = np.abs(t_return) * 0.1
-        # breakpoint()
-        # if np.random.rand() < 0.55:
-        #     t_return = np.abs(t_return)
-        # else :
-        #     t_return = -np.abs(t_return)
         # --- D. EXECUTE NEW TRADES ---
         # We invest 1/z_f (e.g., 20%) of our *Total Wealth*, but capped by available cash
         # Buy & Hold Logic (Constantly buying every step)

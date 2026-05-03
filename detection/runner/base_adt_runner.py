@@ -144,6 +144,7 @@ class AnomalyDetectionRunner(BaseRunner):
 
     def train_iters(self, epoch: int, iter_index: int, data: Union[torch.Tensor, Tuple]) -> torch.Tensor:
         iter_num = (epoch - 1) * self.iter_per_epoch + iter_index
+
         logits, labels = self.forward(data=data, epoch=epoch, iter_num=iter_num, train=True)
         
         # Calculate Loss (NO INVERSE SCALING)
@@ -227,7 +228,7 @@ class AnomalyDetectionRunner(BaseRunner):
         transactions = (1 - 1e-4) # 1e-4 transaction fee
         
         # The mathematical edge of a 55% win rate machine: 0.55 - 0.45 = 0.10
-        oracle_edge = 0.10 
+        oracle_edge = 0.1
         # Initialize Trackers: Baseline (trade everything) vs Model (trade only anomalies)
         base_cash, model_cash = 1.0, 1.0
         base_active_trades, model_active_trades = [], []
@@ -266,7 +267,8 @@ class AnomalyDetectionRunner(BaseRunner):
             # --- B. Calculate Current Wealth ---
             base_current_wealth = base_cash + sum(tr['basis'] for tr in base_active_trades)
             model_current_wealth = model_cash + sum(tr['basis'] for tr in model_active_trades)
-            
+            # print(base_current_wealth)
+            # print(model_current_wealth)
             base_wealth_history.append(base_current_wealth)
             model_wealth_history.append(model_current_wealth)
 
@@ -275,7 +277,7 @@ class AnomalyDetectionRunner(BaseRunner):
             base_signal, model_signal = False, False
             
             active_mask = (all_returns[t] != 0.0)
-            
+            # print(all_returns[t])
             if use_local:
                 # 1. BASELINE: Trade all active stocks
                 active_count = np.sum(active_mask)
@@ -391,4 +393,4 @@ class AnomalyDetectionRunner(BaseRunner):
     # @master_only
     def on_validating_end(self, train_epoch: Optional[int]):
         if train_epoch is not None:
-            self.save_best_model(train_epoch, "val_F1", greater_best=True)
+            self.save_best_model(train_epoch, "val_Local_F1", greater_best=True)

@@ -14,12 +14,12 @@ from .data import AnomalyDetectionDataset
 
 CFG = EasyDict()
 CFG.TRAIN = EasyDict()
-CFG.NOTE = {"Anomaly Detection , new detector1"}
+CFG.NOTE = {"Anomaly Detection , new detector2"}
 
 CFG.TEST_ONLY = False
 # CFG.TEST_ONLY = True
 # CFG.TRAIN.CKPT_SAVE_DIR = "/home/benyan2023/workspace/STEP/STEP/checkpoints/iMamba2AnomalyDetector_100/"
-# CFG.MD5 = "9dc5dc5dff14c072a8b89c4974428f40"
+# CFG.MD5 = "40270cc5a43e0c4be11dd949c04f1e4f"
 
 # ================= general ================= #
 CFG.DESCRIPTION = "iMamba2 (AD) configuration"
@@ -37,15 +37,9 @@ D_STATE = 16
 D_CONV = 4
 expand = 2
 
-CFG.DATAPARAM = {
-    "seq_len": SEQ_LEN,
-    "num_anomalies": 0,
-    "x_h": 0.2, "x_f": 0.3,
-    "y_h": 2, "y_f": 3,
-    "z_h": 1, "z_f": 1,
-    "pos_local": 70.43, "pos_global":4.68,
+from .NumerMoe_AD import DATAPARAM
+CFG.DATAPARAM = DATAPARAM
 
-}
 CFG.DATASET_INPUT_LEN = SEQ_LEN
 CFG.DATASET_OUTPUT_LEN = OUT_LEN
 CFG.GPU_NUM = 1

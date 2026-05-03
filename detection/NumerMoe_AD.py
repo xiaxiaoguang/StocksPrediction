@@ -14,7 +14,7 @@ from .data import AnomalyDetectionDataset
 
 CFG = EasyDict()
 CFG.TRAIN = EasyDict()
-CFG.NOTE = {"NumerMoe2"}
+CFG.NOTE = {"NumerMoe4"}
 
 CFG.TEST_ONLY = False
 # CFG.TEST_ONLY = True
@@ -31,16 +31,18 @@ CFG.DATASET_TYPE = "Finance data"
 SEQ_LEN = 24
 ALL_BATCH_SIZE = 128
 OUT_LEN  = 48
-EMBED_DIM = 48
 
-CFG.DATAPARAM = {
+DATAPARAM = {
     "seq_len": SEQ_LEN,
     "num_anomalies": 0,
     "x_h": 0.2, "x_f": 0.3,
-    "y_h": 2, "y_f": 3,
+    "y_h": 1, "y_f": 3,
     "z_h": 1, "z_f": 1,
-    "pos_local": 66.127184669682, "pos_global":4.6526589810338415,
+    "pos_local": 71.22330488694715, "pos_global":2.464875089687561,
 }
+
+
+CFG.DATAPARAM = DATAPARAM
 CFG.DATASET_INPUT_LEN = SEQ_LEN
 CFG.DATASET_OUTPUT_LEN = OUT_LEN
 CFG.GPU_NUM = 1
@@ -61,17 +63,17 @@ CFG.MODEL.PARAM = {
         'seq_len':SEQ_LEN,
         'pre_len':OUT_LEN,
         'input_dim':1,
-        'd_model':[64,16],
+        'd_model':[32,8],
         "n_layer":2,
-        "dropout":0.5,
+        "dropout":0.3,
         "patch_level":-1,
     },
 
     "spc_configs":{
-        'd_model':OUT_LEN * 2,
+        'd_model':OUT_LEN * 4,
         'n_heads': 4,
         'num_layers':3,
-        'num_experts':4,
+        'num_experts':5,
         'top_k':2,
         'd_ff':256,
     }
@@ -118,7 +120,7 @@ CFG.TRAIN.DATA.DIR = "datasets/" + CFG.DATASET_NAME
 CFG.TRAIN.DATA.BATCH_SIZE = ALL_BATCH_SIZE
 CFG.TRAIN.DATA.PREFETCH = False
 CFG.TRAIN.DATA.SHUFFLE = True
-CFG.TRAIN.DATA.NUM_WORKERS = 1
+CFG.TRAIN.DATA.NUM_WORKERS = 2
 CFG.TRAIN.DATA.PIN_MEMORY = True
 
 # ================= validate ================= #
@@ -132,8 +134,8 @@ CFG.VAL.DATA.DIR = "datasets/" + CFG.DATASET_NAME
 CFG.VAL.DATA.BATCH_SIZE = ALL_BATCH_SIZE
 CFG.VAL.DATA.PREFETCH = False
 CFG.VAL.DATA.SHUFFLE = False
-CFG.VAL.DATA.NUM_WORKERS = 1
-CFG.VAL.DATA.PIN_MEMORY = True
+CFG.VAL.DATA.NUM_WORKERS = 2
+CFG.VAL.DATA.PIN_MEMORY = False
 
 # ================= test ================= #
 CFG.TEST = EasyDict()
@@ -147,5 +149,5 @@ CFG.TEST.DATA.DIR = "datasets/" + CFG.DATASET_NAME
 CFG.TEST.DATA.BATCH_SIZE = ALL_BATCH_SIZE
 CFG.TEST.DATA.PREFETCH = False
 CFG.TEST.DATA.SHUFFLE = False
-CFG.TEST.DATA.NUM_WORKERS = 1
-CFG.TEST.DATA.PIN_MEMORY = True
+CFG.TEST.DATA.NUM_WORKERS = 2
+CFG.TEST.DATA.PIN_MEMORY = False

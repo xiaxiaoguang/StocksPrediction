@@ -110,7 +110,7 @@ class LinearBlock(nn.Module):
                                 self.linear_module))
             
         self.act = NormActivation(F.tanh)
-        self.outLinear= self.linear_module(sum(self.configs["d_model"]) ,self.configs['pre_len'])
+        self.outLinear= self.linear_module(sum(self.configs["d_model"]) , self.configs['pre_len'])
 
     def _block_creator(self,d_model, d_out,function):
             return function(d_model,d_out)
@@ -180,23 +180,22 @@ class TimeEncoder(nn.Module):
         self.n_layer = configs['n_layer']
         self.norm_layer = Norm(configs['input_dim'],selected=(1,))
 
-        # if self.configs.patch_level != -1:
-        #     self.multi_level_patch_embed_layer = ML_Patch_Embedding(self.configs.seq_len,self.configs.patch_dim,self.configs.patch_level,nn.Linear)
+        # if configs.patch_level != -1:
+        #     self.multi_level_patch_embed_layer = ML_Patch_Embedding(configs.seq_len,configs.patch_dim,configs.patch_level,nn.Linear)
 
         self.real_layer = LinearBlock(configs, 'Real')
         self.complex_layer = LinearBlock(configs, 'Complex')
-        # self.quaternion_layer = LinearBlock(configs, 'Quaternion')
-        # self.octonion_layer = LinearBlock(configs, 'Octonion')
-        
+        self.quaternion_layer = LinearBlock(configs, 'Quaternion')
+        self.octonion_layer = LinearBlock(configs, 'Octonion')
         # self.sedenion_layer = LinearBlock(configs, 'Sedenion')
 
         # self.gelu=nn.GELU()
-        # self.dropout= nn.Dropout(self.configs.dropout)
+        # self.dropout= nn.Dropout(configs.dropout)
         # self.var_fusion_layer  = nn.Linear(5,configs.pred_len)
         # self.mean_fusion_layer = nn.Linear(5,configs.pred_len)
         # self.output_layer_mean = nn.Linear(configs.pred_len,5)
         # self.output_layer_var  = nn.Linear(configs.pred_len,5)
-        # self.final_fusion = nn.Linear(configs['d_model'][-1],configs['out'])
+        # self.final_fusion = nn.Linear(configs['pre_len'] * 4 , configs['pre_len'] * 2)
 
     def forward(self, x):
 
@@ -221,5 +220,8 @@ class TimeEncoder(nn.Module):
             se,se_real = self.sedenion_layer(x)
 
         stack_real = torch.cat([re_real, bi_real, qu_real, oc_real],dim=-1)
-
-        return stack_real
+        # stack_real = torch.cat([re_real, bi_real],dim=-1)
+        # , qu_real, oc_real
+        # enc = self.final_fusion(stack_real)
+        enc = stack_real
+        return enc

@@ -15,27 +15,24 @@ class NumerMoe(nn.Module):
         self.spatial  = SpaceEncoder(spc_configs)
         # NEW: Anomaly Detection Head
         # Input size is d_model * 2 because we will concatenate Mean and Max pooling
+        
         self.detector = nn.Sequential(
             nn.Linear(spc_configs["d_model"], 1),
         )
         self.detector2 = nn.Sequential(
-            nn.Linear(spc_configs["d_model"] * 2, spc_configs["d_model"] // 2),
-            nn.GELU(),
-            nn.Dropout(0.3),
-            nn.Linear(spc_configs["d_model"] // 2, 1) # Output raw logits [B, 1]
+            nn.Linear(spc_configs["d_model"] * 2, 1) # Output raw logits [B, 1]
         )
 
     def detect(self, x_enc):
         # x_enc = x_enc.transpose(-1,-2)
         x_enc = self.temporal(x_enc)
         x_enc = self.spatial(x_enc)
+
         logits_local = self.detector(x_enc).squeeze(-1)
+        
         mean_pool = torch.mean(x_enc, dim=1) # [B, E]
-        # Max Pooling captures the "extreme sector rotations / sudden spikes"
         max_pool = torch.max(x_enc, dim=1)[0] # [B, E]
-        # Combine both global perspectives
         global_representation = torch.cat([mean_pool, max_pool], dim=-1) # [B, 2 * E]
-        # Final Classification
         logits_global = self.detector2(global_representation) # [B, 1]
         logits ={
             'local':logits_local,
