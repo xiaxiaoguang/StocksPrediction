@@ -38,7 +38,6 @@ DATAPARAM = {
     "x_h": 0.2, "x_f": 0.3,
     "y_h": 1, "y_f": 3,
     "z_h": 1, "z_f": 1,
-    "pos_local": 71.22330488694715, "pos_global":2.464875089687561,
 }
 
 
@@ -84,7 +83,7 @@ CFG.MODEL.TARGET_FEATURES = [0]
 CFG.MODEL.DDP_FIND_UNUSED_PARAMETERS = True
 
 # ================= optim ================= #
-CFG.TRAIN.LOSS = MultiObjectiveDetectionLoss(pos_weight_global=CFG.DATAPARAM['pos_global'],pos_weight_local=CFG.DATAPARAM['pos_local'])
+CFG.TRAIN.LOSS = MultiObjectiveDetectionLoss
 CFG.TRAIN.OPTIM = EasyDict()
 CFG.TRAIN.OPTIM.TYPE = "Adam"
 CFG.TRAIN.OPTIM.PARAM= {

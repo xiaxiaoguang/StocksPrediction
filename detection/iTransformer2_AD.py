@@ -65,7 +65,7 @@ CFG.MODEL.TARGET_FEATURES = [0]
 CFG.MODEL.DDP_FIND_UNUSED_PARAMETERS = True
 
 # ================= optim ================= #
-CFG.TRAIN.LOSS = MultiObjectiveDetectionLoss(pos_weight_global=CFG.DATAPARAM['pos_global'],pos_weight_local=CFG.DATAPARAM['pos_local'])
+CFG.TRAIN.LOSS = MultiObjectiveDetectionLoss
 CFG.TRAIN.OPTIM = EasyDict()
 CFG.TRAIN.OPTIM.TYPE = "Adam"
 CFG.TRAIN.OPTIM.PARAM= {

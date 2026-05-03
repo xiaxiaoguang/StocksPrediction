@@ -596,7 +596,7 @@ def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=50
         # --- LEVEL 1: GLOBAL ANOMALY (Historical Forecast) ---
         # Calculate the average market return for each day
         market_returns = np.mean(returns, axis=1)
-        
+
         # Use pandas EWMA for fast 1-step ahead forecasting based on history
         # span=20 is roughly a 1-month trading history memory
         df_market = pd.Series(market_returns)
@@ -630,7 +630,6 @@ def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=50
         
         # Standardize stock's return based ONLY on what other stocks did today
         local_z_scores = (returns - cross_mu) / cross_sigma
-        
         # Local Mask: Did this specific stock deviate from the pack today?
         local_mask = np.abs(local_z_scores) > local_z
         
@@ -749,8 +748,8 @@ class ParametersForAD:
     z_h: int = 1
     
     # 影响测试结果
-    x_f: float = 0.2
-    y_f: float = 2.8
+    x_f: float = 0.3
+    y_f: float = 3
     z_f: int = 1
 
     # # 2. History Thresholds (his)

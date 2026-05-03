@@ -1,6 +1,5 @@
 import sys
-sys.path.append('/home/srwang/trend_forecasting/dataprovider')
-from data_loader import Dataset_Finance, Dataset_Finance_new
+from .data_loader import Dataset_Finance, Dataset_Finance_new
 from torch.utils.data import DataLoader
 import pandas as pd
 
