@@ -69,9 +69,9 @@ CFG.TRAIN.LOSS = MultiObjectiveDetectionLoss
 CFG.TRAIN.OPTIM = EasyDict()
 CFG.TRAIN.OPTIM.TYPE = "Adam"
 CFG.TRAIN.OPTIM.PARAM= {
-    "lr":1e-3,
+    "lr":1e-4,
     "amsgrad":True, # ?
-    "weight_decay":1e-4,
+    "weight_decay":1e-5,
     "eps":1.0e-8,
 }
 

@@ -32,7 +32,7 @@ CFG.DATASET_TYPE = "Finance data"
 ALL_BATCH_SIZE = 128
 SEQ_LEN = 24
 OUT_LEN  = 1
-EMBED_DIM = 64
+EMBED_DIM = 128
 D_STATE = 16
 D_CONV = 4
 expand = 2
@@ -55,12 +55,12 @@ CFG.MODEL = EasyDict()
 CFG.MODEL.NAME = "iMamba2AnomalyDetector"
 CFG.MODEL.ARCH = iMamba2AnomalyDetector
 CFG.MODEL.PARAM = {
-    "seq_len":SEQ_LEN ,
-    "d_model":EMBED_DIM,
-    "dropout":0.5,
+    "seq_len" :SEQ_LEN ,
+    "d_model" :EMBED_DIM,
+    "dropout" :0.5,
     "d_state" :D_STATE,
-    "d_conv"   :D_CONV,
-    "expand": expand,
+    "d_conv"  :D_CONV,
+    "expand"  :expand,
     "e_layers":4,
     "use_norm":True,
 }
@@ -70,13 +70,13 @@ CFG.MODEL.TARGET_FEATURES = [0]
 CFG.MODEL.DDP_FIND_UNUSED_PARAMETERS = True
 
 # ================= optim ================= #
-CFG.TRAIN.LOSS = MultiObjectiveDetectionLoss(pos_weight_global=CFG.DATAPARAM['pos_global'],pos_weight_local=CFG.DATAPARAM['pos_local'])
+CFG.TRAIN.LOSS = MultiObjectiveDetectionLoss
 CFG.TRAIN.OPTIM = EasyDict()
 CFG.TRAIN.OPTIM.TYPE = "Adam"
 CFG.TRAIN.OPTIM.PARAM= {
-    "lr":1e-3,
+    "lr":1e-4,
     "amsgrad":True, # ?
-    "weight_decay":1e-4,
+    "weight_decay":1e-5,
     "eps":1.0e-8,
 }
 

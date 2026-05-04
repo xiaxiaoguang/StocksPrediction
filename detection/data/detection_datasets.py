@@ -34,8 +34,8 @@ class AnomalyDetectionDataset(Dataset):
         
         self.local_ratio = label_data['local'].sum() / (label_data['local'].shape[0] * label_data['local'].shape[1])
         self.global_ratio = label_data['global'].sum() / (label_data['global'].shape[0] * label_data['global'].shape[1])
-        self.pos_global  = (1-self.local_ratio)/self.local_ratio
-        self.pos_local    =(1-self.global_ratio)/self.global_ratio
+        self.pos_global = (1 - self.global_ratio) / self.global_ratio
+        self.pos_local  = (1 - self.local_ratio) / self.local_ratio
         print('local and global ratio : ',self.local_ratio,self.global_ratio,(1-self.local_ratio)/self.local_ratio,(1-self.global_ratio)/self.global_ratio)
 
         self.index = load_pkl(index_file_path)[mode]

@@ -77,7 +77,6 @@ class AnomalyDetectionRunner(BaseRunner):
         dataset_args["mode"] = "train"
         dataset = cfg["DATASET_CLS"](**dataset_args)
         self.iter_per_epoch = math.ceil(len(dataset) / cfg["TRAIN"]["DATA"]["BATCH_SIZE"])
-
         self.loss = cfg["TRAIN"]["LOSS"](pos_weight_global=dataset.pos_global,
                                          pos_weight_local=dataset.pos_local)
         return dataset
