@@ -24,8 +24,12 @@ class AnomalyDetectionRunner(BaseRunner):
         self.dataset_type = cfg["DATASET_TYPE"]
         self.evaluate_on_gpu = cfg["TEST"].get("USE_GPU", True)
         self.use_local=False
+<<<<<<< HEAD
         # self.loss = cfg["TRAIN"]["LOSS"]
         # self.loss  = self.to_running_device(self.loss)
+=======
+
+>>>>>>> cb4b158e22619561c0623049063bc0ab05a9d106
         # We no longer need MAE/RMSE. We register classification metrics.
         self.metrics = {
             "F1": detection_f1,
@@ -78,7 +82,6 @@ class AnomalyDetectionRunner(BaseRunner):
         dataset_args["mode"] = "train"
         dataset = cfg["DATASET_CLS"](**dataset_args)
         self.iter_per_epoch = math.ceil(len(dataset) / cfg["TRAIN"]["DATA"]["BATCH_SIZE"])
-
         self.loss = cfg["TRAIN"]["LOSS"](pos_weight_global=dataset.pos_global,
                                          pos_weight_local=dataset.pos_local)
         return dataset

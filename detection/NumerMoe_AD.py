@@ -83,7 +83,6 @@ CFG.MODEL.TARGET_FEATURES = [0]
 CFG.MODEL.DDP_FIND_UNUSED_PARAMETERS = True
 
 # ================= optim ================= #
-# CFG.TRAIN.LOSS = AdaptiveMultiObjectiveLoss()
 CFG.TRAIN.LOSS = MultiObjectiveDetectionLoss
 CFG.TRAIN.OPTIM = EasyDict()
 CFG.TRAIN.OPTIM.TYPE = "Adam"
