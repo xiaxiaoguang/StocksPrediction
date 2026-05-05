@@ -30,12 +30,12 @@ CFG.DATASET_TYPE = "Finance data"
 
 SEQ_LEN = 24
 ALL_BATCH_SIZE = 128
-OUT_LEN  = 48
+OUT_LEN  = 24
 
 DATAPARAM = {
     "seq_len": SEQ_LEN,
     "num_anomalies": 0,
-    "x_h": 0.2, "x_f": 0.3,
+    "x_h": 0.5, "x_f": 0.2,
     "y_h": 1, "y_f": 3,
     "z_h": 1, "z_f": 1,
 }
@@ -72,8 +72,8 @@ CFG.MODEL.PARAM = {
         'd_model':OUT_LEN * 4,
         'n_heads': 4,
         'num_layers':3,
-        'num_experts':5,
-        'top_k':2,
+        'num_experts':4,
+        'top_k':1,
         'd_ff':256,
     }
 }
