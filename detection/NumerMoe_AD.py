@@ -9,12 +9,12 @@ from basicts.utils.serialization import load_adj
 
 from .arch import NumerMoe
 from .runner import iTransformer2AnomalyRunner
-from .loss import MultiObjectiveDetectionLoss
+from .loss import MultiObjectiveDetectionLoss, AdaptiveMultiObjectiveLoss
 from .data import AnomalyDetectionDataset
 
 CFG = EasyDict()
 CFG.TRAIN = EasyDict()
-CFG.NOTE = {"NumerMoe4"}
+CFG.NOTE = {"NumerMoe5"}
 
 CFG.TEST_ONLY = False
 # CFG.TEST_ONLY = True
@@ -30,15 +30,14 @@ CFG.DATASET_TYPE = "Finance data"
 
 SEQ_LEN = 24
 ALL_BATCH_SIZE = 128
-OUT_LEN  = 48
+OUT_LEN  = 64
 
 DATAPARAM = {
     "seq_len": SEQ_LEN,
     "num_anomalies": 0,
-    "x_h": 0.2, "x_f": 0.3,
+    "x_h": 0.5, "x_f": 0.2,
     "y_h": 1, "y_f": 3,
     "z_h": 1, "z_f": 1,
-    "pos_local": 71.22330488694715, "pos_global":2.464875089687561,
 }
 
 
@@ -63,9 +62,9 @@ CFG.MODEL.PARAM = {
         'seq_len':SEQ_LEN,
         'pre_len':OUT_LEN,
         'input_dim':1,
-        'd_model':[32,8],
-        "n_layer":2,
-        "dropout":0.3,
+        'd_model':[64],
+        "n_layer":1,
+        "dropout":0.5,
         "patch_level":-1,
     },
 
@@ -73,9 +72,9 @@ CFG.MODEL.PARAM = {
         'd_model':OUT_LEN * 4,
         'n_heads': 4,
         'num_layers':3,
-        'num_experts':5,
+        'num_experts':6,
         'top_k':2,
-        'd_ff':256,
+        'd_ff':128,
     }
 }
 
@@ -84,13 +83,14 @@ CFG.MODEL.TARGET_FEATURES = [0]
 CFG.MODEL.DDP_FIND_UNUSED_PARAMETERS = True
 
 # ================= optim ================= #
-CFG.TRAIN.LOSS = MultiObjectiveDetectionLoss(pos_weight_global=CFG.DATAPARAM['pos_global'],pos_weight_local=CFG.DATAPARAM['pos_local'])
+# CFG.TRAIN.LOSS = AdaptiveMultiObjectiveLoss()
+CFG.TRAIN.LOSS = MultiObjectiveDetectionLoss
 CFG.TRAIN.OPTIM = EasyDict()
 CFG.TRAIN.OPTIM.TYPE = "Adam"
 CFG.TRAIN.OPTIM.PARAM= {
-    "lr":1e-3,
+    "lr":1e-4,
     "amsgrad":True, # ?
-    "weight_decay":1e-4,
+    "weight_decay":1e-5,
     "eps":1.0e-8,
 }
 

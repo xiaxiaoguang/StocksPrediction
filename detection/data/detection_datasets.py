@@ -2,6 +2,7 @@ import os
 import torch
 import pickle
 from torch.utils.data import Dataset
+import numpy as np
 
 def load_pkl(path):
     with open(path, 'rb') as f:
@@ -32,9 +33,13 @@ class AnomalyDetectionDataset(Dataset):
             'local': torch.from_numpy(label_data['local']).float()
         }        # 3. Read index
         
-        self.local_ratio = label_data['local'].sum() / (label_data['local'].shape[0] * label_data['local'].shape[1])
         self.global_ratio = label_data['global'].sum() / (label_data['global'].shape[0] * label_data['global'].shape[1])
-        print('local and global ratio : ',self.local_ratio,self.global_ratio,(1-self.local_ratio)/self.local_ratio,(1-self.global_ratio)/self.global_ratio)
+        self.local_ratio = label_data['local'].sum() / (label_data['local'].shape[0] * label_data['local'].shape[1])
+        self.pos_global = ((1 - self.global_ratio) / self.global_ratio)
+        self.pos_local  = ((1 - self.local_ratio) / self.local_ratio  )
+
+        print('local and global ratio : ',self.local_ratio,self.global_ratio,
+              self.pos_local,self.pos_global)
 
         self.index = load_pkl(index_file_path)[mode]
 

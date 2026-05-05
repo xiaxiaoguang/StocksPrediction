@@ -163,6 +163,7 @@ class LinearBlock(nn.Module):
             x_real = torch.mean(x,dim=-1)
         else:
             x_real = x
+
         return x,x_real
 
 class NormActivation(nn.Module):
@@ -221,7 +222,7 @@ class TimeEncoder(nn.Module):
 
         stack_real = torch.cat([re_real, bi_real, qu_real, oc_real],dim=-1)
         # stack_real = torch.cat([re_real, bi_real],dim=-1)
-        # , qu_real, oc_real
+
         # enc = self.final_fusion(stack_real)
         enc = stack_real
         return enc

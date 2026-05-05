@@ -6,16 +6,13 @@ import numpy as np
 import os
 import torch
 import pickle
-from data_utils import load_data,get_origin_data_from_tushare #会显示报错，但是上面加了sys path可以使用
 #读取股市数据
 import matplotlib.pyplot as plt
 import itertools
 from dataclasses import dataclass
-from jqdatasdk import *
-import tushare as ts
 from tqdm import tqdm
 import joblib
-ts_pro = ts.pro_api("4883ec2948bef5ea9b8deb81b0c072b1808fb2b1c9d59f0d676a6095")
+# ts_pro = ts.pro_api("4883ec2948bef5ea9b8deb81b0c072b1808fb2b1c9d59f0d676a6095")
 
 def create_stock_data_numpy(save_folder_path, stock_list=None, cache_filename="multivariate_cache.pkl"):
     """
@@ -35,11 +32,11 @@ def create_stock_data_numpy(save_folder_path, stock_list=None, cache_filename="m
             cached_data = joblib.load(cache_path)
             data_bnl = cached_data['data']
             valid_stocks = cached_data['stocks']
+
             print(f"[*] Successfully loaded from cache. Shape: {data_bnl.shape} (Timesteps, Stocks, Features)")
             return data_bnl
         except Exception as e:
             print(f"[!] Error loading cache: {e}. Rebuilding from scratch...")
-
     # --- 2. ORIGINAL LOGIC: Rebuild if no cache found ---
     print("[*] No valid cache found. Aligning individual stocks...")
     
@@ -208,39 +205,220 @@ def inject_whale_anomalies(data_bnl, num_anomalies=100, z_window=5,
     print(f"--- Successfully Injected {successful_injections}/{num_anomalies} Weighted Whale Anomalies ---")
     return new_data
 
+def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=500, validl=500, whale_params=None, balance_eval=False):
+    """
+    Creates a 2x length dataset where indexing is strictly gated by historical trends.
+    Generates BOTH Global [B, 1] and Local [B, N] labels using Top-K and Fee Thresholds.
+    """
+    L, N, _ = features.shape
+    testl = int(L * testl)
+    validl = int(L * validl)
+
+    if whale_params is None:
+        pass # Placeholder for your whale injection logic
+        
+    # 1. Labeling Parameters from config
+    x_h, x_f = cfg.x_h, cfg.x_f
+    y_h, y_f = cfg.y_h, cfg.y_f
+    z_h, z_f = cfg.z_h, cfg.z_f
+    suffix = cfg.get_suffix()
+
+    embargo = seq_len + z_f 
+
+    # --- PHASE 1: GENERATE SYNTHETIC DATA ---
+    injected_features = features # Replace with inject_whale_anomalies if used
+
+    def get_trend_mask(data, span, local_z=2.0, breach_threshold=0.15, direction='future'):
+        prices = data.squeeze(-1)
+        T, N_stocks = prices.shape
+        
+        # 1. Calculate Returns
+        shifts = np.zeros_like(prices)
+        if direction == 'future':
+            shifts[:-span] = prices[span:]
+            with np.errstate(divide='ignore', invalid='ignore'):
+                returns = (shifts - prices) / prices
+            returns[-span:] = 0 
+        else:
+            shifts[span:] = prices[:-span]
+            with np.errstate(divide='ignore', invalid='ignore'):
+                returns = (prices - shifts) / shifts
+            returns[:span] = 0     
+
+        # --- LEVEL 1: GLOBAL ANOMALY (Historical Forecast) ---
+        market_returns = np.mean(returns, axis=1)
+        df_market = pd.Series(market_returns)
+        forecast_mu = df_market.ewm(span=20, adjust=False).mean().shift(1).fillna(0).values
+        variance = (df_market - forecast_mu)**2
+        forecast_sigma = np.sqrt(variance.ewm(span=20, adjust=False).mean().shift(1).fillna(1e-4).values)
+        
+        forecast_mu_exp = np.expand_dims(forecast_mu, axis=1)
+        forecast_sigma_exp = np.expand_dims(forecast_sigma, axis=1)
+        
+        upper_bound = forecast_mu_exp + (local_z * forecast_sigma_exp)
+        lower_bound = forecast_mu_exp - (local_z * forecast_sigma_exp)
+        
+        breaches = (returns > upper_bound) | (returns < lower_bound)
+        breach_ratio = np.sum(breaches, axis=1) / N_stocks
+        global_mask = breach_ratio > breach_threshold
+        
+        # --- LEVEL 2: LOCAL ANOMALY (Top 5 + Transaction Fee Threshold) ---
+        cross_mu = np.expand_dims(np.mean(returns, axis=1), axis=1)
+        cross_sigma = np.expand_dims(np.std(returns, axis=1) + 1e-8, axis=1)
+        local_z_scores = (returns - cross_mu) / cross_sigma
+        
+        abs_z_scores = np.abs(local_z_scores)
+        abs_returns = np.abs(returns)
+        
+        # Initialize an empty boolean mask
+        local_mask = np.zeros_like(returns, dtype=bool)
+        
+        # Step A: Find the indices of the Top 5 absolute z-scores for each day
+        top_k = min(5, N_stocks) # Safety check in case N < 5
+        # argsort sorts ascending, so we take the last 'top_k' elements per row
+        top_k_indices = np.argsort(abs_z_scores, axis=1)[:, -top_k:] 
+        
+        # Set the Top 5 positions to True using advanced indexing
+        row_indices = np.arange(T)[:, None]
+        local_mask[row_indices, top_k_indices] = True
+        
+        # Step B: Filter out anything that doesn't beat the transaction fee (1e-4)
+        fee_threshold = 1e-4
+        local_mask = local_mask & (abs_returns > fee_threshold)
+
+        return global_mask, local_mask
+
+    # Synthetic & Raw block masks
+    F_injected_global, F_injected_local = get_trend_mask(injected_features, z_f, y_f, x_f, 'future')
+    H_injected_global, _ = get_trend_mask(injected_features, z_h, y_h, x_h, 'history')
+    
+    F_raw_global, F_raw_local = get_trend_mask(features, z_f, y_f, x_f, 'future')
+    H_raw_global, _ = get_trend_mask(features, z_h, y_h, x_h, 'history')
+
+    # --- PHASE 3: CONCATENATE TO 2x LENGTH ---
+    extended_features = np.concatenate([injected_features, features], axis=0)
+    extended_H_masks = np.concatenate([H_injected_global, H_raw_global], axis=0)
+    
+    extended_F_global = np.concatenate([F_injected_global, F_raw_global], axis=0).astype(np.float32).reshape(-1, 1)
+    extended_F_local = np.concatenate([F_injected_local, F_raw_local], axis=0).astype(np.float32) 
+
+    # --- PHASE 4: FIT SCALER ON SYNTHETIC HALF ONLY ---
+    train_scaler_data = extended_features[:L - z_f] 
+    train_mean = np.mean(train_scaler_data)
+    train_std = np.std(train_scaler_data) + 1e-8
+    scaled_extended_features = (extended_features - train_mean) / train_std
+
+    # --- PHASE 5: SMART INDEX ROUTING & AUGMENTATION ---
+    def filter_and_balance(start_idx, end_idx, augment=True):
+        pos_pool, neg_pool = [], []
+        
+        for i in range(start_idx, end_idx):
+            T = i + seq_len 
+            
+            has_global_anomaly = (extended_F_global[T][0] > 0)
+            has_history_anomaly = (extended_H_masks[T] > 0)
+            
+            if has_global_anomaly:
+                pos_pool.append(i) 
+            elif has_history_anomaly or (augment == False):
+                neg_pool.append(i)
+
+        if not pos_pool or not neg_pool:
+            print(f"Warning: Missing classes in range {start_idx}-{end_idx}.")
+            return [(i, i+seq_len) for i in (pos_pool + neg_pool)]
+        
+        if augment:
+            target_size = min(len(pos_pool), len(neg_pool))
+            pos_balanced = np.random.choice(pos_pool, target_size, replace=True).tolist()
+            neg_balanced = np.random.choice(neg_pool, target_size, replace=True).tolist()
+        else:
+            pos_balanced = pos_pool
+            neg_balanced = neg_pool
+
+        balanced_indices = pos_balanced + neg_balanced
+        np.random.shuffle(balanced_indices) 
+        
+        return [(i, i+seq_len) for i in balanced_indices]
+
+    idx = {'train': [], 'valid': [], 'test': []}
+
+    train_end_start_idx = L - seq_len - z_f - testl - embargo - validl
+    idx['train'] = filter_and_balance(0, train_end_start_idx, augment=True)
+
+    test_start = (2 * L) - testl - z_f - seq_len
+    idx['test'] = filter_and_balance(test_start, test_start + testl, augment=balance_eval)
+
+    valid_start = test_start - embargo - validl
+    idx['valid'] = filter_and_balance(valid_start, valid_start + validl, augment=balance_eval)
+
+    # --- PHASE 6: SAVE FILES ---
+    os.makedirs(save_path, exist_ok=True)
+    
+    with open(f'{save_path}/data_anomaly{suffix}.pkl', 'wb') as f:
+        pickle.dump({'processed_data': scaled_extended_features}, f)
+
+    target_dict = {
+        'global': extended_F_global,
+        'local': extended_F_local
+    }
+
+    with open(f'{save_path}/label_anomaly{suffix}.pkl', 'wb') as f:
+        pickle.dump({'processed_data': target_dict}, f) 
+
+    with open(f'{save_path}/index_anomaly{suffix}.pkl', 'wb') as f:
+        pickle.dump(idx, f)
+
+    scaler = {
+        'func': 're_standard_transform',
+        'args': {'mean': float(train_mean), 'std': float(train_std)}
+    }
+    with open(f'{save_path}/scaler_anomaly{suffix}.pkl', 'wb') as f:
+        pickle.dump(scaler, f)
+
+    print(f"\n--- Output Complete ---")
+    print(f"Global Target Shape: {extended_F_global.shape}")
+    print(f"Local Target Shape: {extended_F_local.shape}")
+    print(f"Train samples (Balanced Temporal Windows): {len(idx['train'])}")
+    
+    # Calculate the exact local imbalance ratio for the loss function
+    total_local_elements = len(idx['train']) * N
+    total_local_positives = sum(np.sum(extended_F_local[i+seq_len]) for i, _ in idx['train'])
+    print(f"Actual Local Anomaly Ratio inside Balanced Train Windows: {total_local_positives / total_local_elements:.4f}")
+
 # def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=500, validl=500, whale_params=None, balance_eval=False):
 #     """
 #     Creates a 2x length dataset where indexing is strictly gated by historical trends.
-#     Generates BOTH Global [B, 1] and Local [B, N] labels using EWMA Forecasting & Cross-Sectional Analysis.
+#     Generates BOTH Global [B, 1] and Local [B, N] labels.
 #     """
 #     L, N, _ = features.shape
 #     testl = int(L * testl)
 #     validl = int(L * validl)
+
 #     if whale_params is None:
-#         raise NotImplementedError("whale_params must be provided")
+#         NotImplementedError
         
 #     # 1. Labeling Parameters from config
-#     x_h, x_f = cfg.x_h, cfg.x_f  # Represents the 'breach_threshold' ratio (e.g., 0.15)
-#     y_h, y_f = cfg.y_h, cfg.y_f  # Represents the 'k' and 'z' volatility multipliers (e.g., 2.5)
-#     z_h, z_f = cfg.z_h, cfg.z_f  # Represents the lookahead/lookback spans
+#     x_h, x_f = cfg.x_h, cfg.x_f
+#     y_h, y_f = cfg.y_h, cfg.y_f
+#     z_h, z_f = cfg.z_h, cfg.z_f
 #     suffix = cfg.get_suffix()
 
 #     embargo = seq_len + z_f 
 
 #     # --- PHASE 1: GENERATE SYNTHETIC DATA ---
-#     print("Injecting whale anomalies into synthetic training block...")
+#     # print("Injecting whale anomalies into synthetic training block...")
 #     # Assumes inject_whale_anomalies is defined in your environment
-#     injected_features = inject_whale_anomalies(features, **whale_params)
-
-#     def get_trend_mask(data, span, global_k=2.5, local_z=2.0, breach_threshold=0.15, direction='future'):
+#     # injected_features = inject_whale_anomalies(features, **whale_params)
+#     injected_features = features
+#     def get_trend_mask(data, span, local_z=2.0, breach_threshold=0.15, direction='future'):
 #         """
 #         data: shape [T, N] (Time, Stocks)
-#         global_k: Multiplier for historical forecasted volatility range (MSE style).
-#         local_z: Multiplier for today's cross-sectional standard deviation (MAE style).
+#         global_k: Multiplier for historical forecasted volatility range.
+#         local_z: Multiplier for today's cross-sectional standard deviation.
 #         breach_threshold: % of stocks that must breach the forecasted range to trigger Global Anomaly.
 #         """
 #         prices = data.squeeze(-1)
-#         T, N_stocks = prices.shape
+#         T, N = prices.shape
         
 #         # 1. Calculate Returns based on direction
 #         shifts = np.zeros_like(prices)
@@ -253,15 +431,14 @@ def inject_whale_anomalies(data_bnl, num_anomalies=100, z_window=5,
 #             shifts[span:] = prices[:-span]
 #             with np.errstate(divide='ignore', invalid='ignore'):
 #                 returns = (prices - shifts) / shifts
-#             returns[:span] = 0 
-            
-#         returns[~np.isfinite(returns)] = 0
-        
+#             returns[:span] = 0     
+
 #         # --- LEVEL 1: GLOBAL ANOMALY (Historical Forecast) ---
 #         # Calculate the average market return for each day
 #         market_returns = np.mean(returns, axis=1)
         
 #         # Use pandas EWMA for fast 1-step ahead forecasting based on history
+#         # span=20 is roughly a 1-month trading history memory
 #         df_market = pd.Series(market_returns)
 #         forecast_mu = df_market.ewm(span=20, adjust=False).mean().shift(1).fillna(0).values
         
@@ -274,42 +451,38 @@ def inject_whale_anomalies(data_bnl, num_anomalies=100, z_window=5,
 #         forecast_sigma_exp = np.expand_dims(forecast_sigma, axis=1)
         
 #         # Did the stock exceed the HISTORICALLY forecasted global range?
-#         upper_bound = forecast_mu_exp + (global_k * forecast_sigma_exp)
-#         lower_bound = forecast_mu_exp - (global_k * forecast_sigma_exp)
+#         # (Checking if it's an MSE-style extreme outlier)
+
+#         upper_bound = forecast_mu_exp + (local_z * forecast_sigma_exp)
+#         lower_bound = forecast_mu_exp - (local_z * forecast_sigma_exp)
         
 #         breaches = (returns > upper_bound) | (returns < lower_bound)
+        
 #         # If > X% of stocks breached the historically forecasted range, it's a global anomaly
-#         breach_ratio = np.sum(breaches, axis=1) / N_stocks
+#         breach_ratio = np.sum(breaches, axis=1) / N
+
 #         global_mask = breach_ratio > breach_threshold
         
 #         # --- LEVEL 2: LOCAL ANOMALY (Cross-Sectional Peers Today) ---
-#         # Calculate today's center of mass and dispersion
+#         # Calculate today's center of mass and dispersion (MAE style)
 #         cross_mu = np.expand_dims(np.mean(returns, axis=1), axis=1)
 #         cross_sigma = np.expand_dims(np.std(returns, axis=1) + 1e-8, axis=1)
-        
+
 #         # Standardize stock's return based ONLY on what other stocks did today
 #         local_z_scores = (returns - cross_mu) / cross_sigma
         
 #         # Local Mask: Did this specific stock deviate from the pack today?
-#         local_mask = np.abs(local_z_scores)
-#         #  > local_z
+#         local_mask = np.abs(local_z_scores) > local_z
         
 #         return global_mask, local_mask
-        
-#     # --- PHASE 2: GENERATE MASKS (Using explicit kwargs to prevent mismatches) ---
-#     F_injected_global, F_injected_local = get_trend_mask(
-#         injected_features, span=z_f, global_k=y_f, local_z=y_f, breach_threshold=x_f, direction='future'
-#     )
-#     H_injected_global, _ = get_trend_mask(
-#         injected_features, span=z_h, global_k=y_h, local_z=y_h, breach_threshold=x_h, direction='history'
-#     )
+
+#     # Synthetic block masks
+#     F_injected_global, F_injected_local = get_trend_mask(injected_features, z_f, y_f, x_f, 'future')
+#     H_injected_global, _ = get_trend_mask(injected_features, z_h, y_h, x_h, 'history')
     
-#     F_raw_global, F_raw_local = get_trend_mask(
-#         features, span=z_f, global_k=y_f, local_z=y_f, breach_threshold=x_f, direction='future'
-#     )
-#     H_raw_global, _ = get_trend_mask(
-#         features, span=z_h, global_k=y_h, local_z=y_h, breach_threshold=x_h, direction='history'
-#     )
+#     # Raw block masks
+#     F_raw_global, F_raw_local = get_trend_mask(features, z_f, y_f, x_f, 'future')
+#     H_raw_global, _ = get_trend_mask(features, z_h, y_h, x_h, 'history')
 
 #     # --- PHASE 3: CONCATENATE TO 2x LENGTH ---
 #     extended_features = np.concatenate([injected_features, features], axis=0)
@@ -322,7 +495,7 @@ def inject_whale_anomalies(data_bnl, num_anomalies=100, z_window=5,
 #     # --- PHASE 4: FIT SCALER ON SYNTHETIC HALF ONLY ---
 #     train_scaler_data = extended_features[:L - z_f] 
 #     train_mean = np.mean(train_scaler_data)
-#     train_std = np.std(train_scaler_data) + 1e-8 
+#     train_std = np.std(train_scaler_data) + 1e-8
 #     scaled_extended_features = (extended_features - train_mean) / train_std
 
 #     # --- PHASE 5: SMART INDEX ROUTING & AUGMENTATION ---
@@ -337,8 +510,8 @@ def inject_whale_anomalies(data_bnl, num_anomalies=100, z_window=5,
 #                 if extended_F_global[T][0] == 1.0:
 #                     pos_pool.append(i) 
 #                 else:
-#                     neg_pool.append(i)
-
+#                     neg_pool.append(i) 
+                    
 #             elif augment == False:
 #                 neg_pool.append(i)
 
@@ -350,7 +523,6 @@ def inject_whale_anomalies(data_bnl, num_anomalies=100, z_window=5,
 #             target_size = min(len(pos_pool), len(neg_pool))
 #             pos_balanced = np.random.choice(pos_pool, target_size, replace=True).tolist()
 #             neg_balanced = np.random.choice(neg_pool, target_size, replace=True).tolist()
-#             print(f"balanced to {target_size}")
 #         else:
 #             pos_balanced = pos_pool
 #             neg_balanced = neg_pool
@@ -369,10 +541,10 @@ def inject_whale_anomalies(data_bnl, num_anomalies=100, z_window=5,
 #     idx['test'] = filter_and_balance(test_start, test_start + testl, augment=balance_eval)
 
 #     valid_start = test_start - embargo - validl
+
 #     if valid_start < L:
 #          raise ValueError(f"validl/testl bleed into synthetic data at {valid_start}!")
 #     idx['valid'] = filter_and_balance(valid_start, valid_start + validl, augment=balance_eval)
-#     print(f"range train {train_end_start_idx} test {test_start,testl} valid {valid_start,validl}")
 
 #     # --- PHASE 6: SAVE FILES ---
 #     os.makedirs(save_path, exist_ok=True)
@@ -403,338 +575,7 @@ def inject_whale_anomalies(data_bnl, num_anomalies=100, z_window=5,
 #     print(f"Global Target Shape: {extended_F_global.shape}")
 #     print(f"Local Target Shape: {extended_F_local.shape}")
 #     print(f"Train samples (1:1 balanced): {len(idx['train'])}")
-
-# def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=500, validl=500, whale_params=None):
-#     """
-#     Creates a 2x length dataset purely focused on future event processing.
-#     Generates Global [B, 1] labels (binary) and Local [B, N] weights (float).
-#     Historical gating and balancing have been removed.
-#     """
-#     L, N, _ = features.shape
-#     testl = int(L * testl)
-#     validl = int(L * validl)
-    
-#     if whale_params is None:
-#         raise NotImplementedError("whale_params must be provided")
-        
-#     # 1. Labeling Parameters from config (History params removed)
-#     x_f = cfg.x_f  # Represents the 'breach_threshold' ratio (e.g., 0.15)
-#     y_f = cfg.y_f  # Represents the 'k' volatility multipliers (e.g., 2.5)
-#     z_f = cfg.z_f  # Represents the lookahead span
-#     suffix = cfg.get_suffix()
-
-#     embargo = seq_len + z_f 
-
-#     # --- PHASE 1: GENERATE SYNTHETIC DATA ---
-#     print("Injecting whale anomalies into synthetic training block...")
-#     injected_features = inject_whale_anomalies(features, **whale_params)
-
-#     def get_future_trend_mask(data, span, global_k=2.5, breach_threshold=0.15):
-#         """
-#         data: shape [T, N] (Time, Stocks)
-#         Evaluates purely on future lookahead (span).
-#         """
-#         prices = data.squeeze(-1)
-#         T, N_stocks = prices.shape
-        
-#         # Calculate Future Returns
-#         shifts = np.zeros_like(prices)
-#         shifts[:-span] = prices[span:]
-#         with np.errstate(divide='ignore', invalid='ignore'):
-#             returns = (shifts - prices) / prices
-#         returns[-span:] = 0 
-#         returns[~np.isfinite(returns)] = 0
-        
-#         # --- LEVEL 1: GLOBAL ANOMALY (Historical Forecast) ---
-#         market_returns = np.mean(returns, axis=1)
-        
-#         df_market = pd.Series(market_returns)
-#         forecast_mu = df_market.ewm(span=20, adjust=False).mean().shift(1).fillna(0).values
-        
-#         variance = (df_market - forecast_mu)**2
-#         forecast_sigma = np.sqrt(variance.ewm(span=20, adjust=False).mean().shift(1).fillna(1e-4).values)
-        
-#         forecast_mu_exp = np.expand_dims(forecast_mu, axis=1)
-#         forecast_sigma_exp = np.expand_dims(forecast_sigma, axis=1)
-        
-#         upper_bound = forecast_mu_exp + (global_k * forecast_sigma_exp)
-#         lower_bound = forecast_mu_exp - (global_k * forecast_sigma_exp)
-        
-#         breaches = (returns > upper_bound) | (returns < lower_bound)
-#         breach_ratio = np.sum(breaches, axis=1) / N_stocks
-#         global_mask = breach_ratio > breach_threshold
-        
-#         # --- LEVEL 2: LOCAL WEIGHTS (Continuous Cross-Sectional Fluctuation) ---
-#         cross_mu = np.expand_dims(np.mean(returns, axis=1), axis=1)
-#         cross_sigma = np.expand_dims(np.std(returns, axis=1) + 1e-8, axis=1)
-        
-#         local_z_scores = (returns - cross_mu) / cross_sigma
-
-#         local_weights = np.abs(local_z_scores) > global_k
-        
-#         return global_mask, local_weights
-        
-#     # --- PHASE 2: GENERATE MASKS & WEIGHTS (Future Only) ---
-#     F_injected_global, F_injected_local_weights = get_future_trend_mask(
-#         injected_features, span=z_f, global_k=y_f, breach_threshold=x_f
-#     )
-    
-#     F_raw_global, F_raw_local_weights = get_future_trend_mask(
-#         features, span=z_f, global_k=y_f, breach_threshold=x_f
-#     )
-
-#     # --- PHASE 3: CONCATENATE TO 2x LENGTH ---
-#     extended_features = np.concatenate([injected_features, features], axis=0)
-    
-#     extended_F_global = np.concatenate([F_injected_global, F_raw_global], axis=0).astype(np.float32).reshape(-1, 1)
-#     extended_F_local = np.concatenate([F_injected_local_weights, F_raw_local_weights], axis=0).astype(np.float32)
-
-#     # --- PHASE 4: FIT SCALER ON SYNTHETIC HALF ONLY ---
-#     train_scaler_data = extended_features[:L - z_f] 
-#     train_mean = np.mean(train_scaler_data)
-#     train_std = np.std(train_scaler_data) + 1e-8 
-#     scaled_extended_features = (extended_features - train_mean) / train_std
-
-#     # --- PHASE 5: STANDARD INDEX ROUTING (No History Gating) ---
-#     def get_indices(start_idx, end_idx):
-#         """Generates sequential overlapping windows and shuffles them."""
-#         indices = [(i, i + seq_len) for i in range(start_idx, end_idx)]
-#         np.random.shuffle(indices)
-#         return indices
-
-#     idx = {'train': [], 'valid': [], 'test': []}
-
-#     train_end_start_idx = L - seq_len - z_f - testl - embargo - validl
-#     idx['train'] = get_indices(0, train_end_start_idx)
-
-#     test_start = (2 * L) - testl - z_f - seq_len
-#     idx['test'] = get_indices(test_start, test_start + testl)
-
-#     valid_start = test_start - embargo - validl
-#     if valid_start < L:
-#          raise ValueError(f"validl/testl bleed into synthetic data at {valid_start}!")
-#     idx['valid'] = get_indices(valid_start, valid_start + validl)
-    
-#     print(f"Index ranges -> train: 0 to {train_end_start_idx} | test: {test_start} to {test_start+testl} | valid: {valid_start} to {valid_start+validl}")
-
-#     # --- PHASE 6: SAVE FILES ---
-#     os.makedirs(save_path, exist_ok=True)
-    
-#     with open(f'{save_path}/data_anomaly' + suffix + '.pkl', 'wb') as f:
-#         pickle.dump({'processed_data': scaled_extended_features}, f)
-
-#     target_dict = {
-#         'global': extended_F_global, # [2L, 1] (Binary)
-#         'local': extended_F_local    # [2L, N] (Float Weights)
-#     }
-
-#     with open(f'{save_path}/label_anomaly' + suffix + '.pkl', 'wb') as f:
-#         pickle.dump({'processed_data': target_dict}, f) 
-
-#     with open(f'{save_path}/index_anomaly' + suffix + '.pkl', 'wb') as f:
-#         pickle.dump(idx, f)
-
-#     scaler = {
-#         'func': 're_standard_transform',
-#         'args': {'mean': float(train_mean), 'std': float(train_std)}
-#     }
-#     with open(f'{save_path}/scaler_anomaly' + suffix + '.pkl', 'wb') as f:
-#         pickle.dump(scaler, f)
-
-#     print(f"\n--- Output Complete ---")
-#     print(f"Global Target Shape: {extended_F_global.shape}")
-#     print(f"Local Target Shape: {extended_F_local.shape} (Continuous Weights)")
-#     print(f"Train samples (Total sequential windows): {len(idx['train'])}")
-    
-def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=500, validl=500, whale_params=None, balance_eval=False):
-    """
-    Creates a 2x length dataset where indexing is strictly gated by historical trends.
-    Generates BOTH Global [B, 1] and Local [B, N] labels.
-    """
-    L, N, _ = features.shape
-    testl = int(L * testl)
-    validl = int(L * validl)
-
-    if whale_params is None:
-        NotImplementedError
-        
-    # 1. Labeling Parameters from config
-    x_h, x_f = cfg.x_h, cfg.x_f
-    y_h, y_f = cfg.y_h, cfg.y_f
-    z_h, z_f = cfg.z_h, cfg.z_f
-    suffix = cfg.get_suffix()
-
-    embargo = seq_len + z_f 
-
-    # --- PHASE 1: GENERATE SYNTHETIC DATA ---
-    print("Injecting whale anomalies into synthetic training block...")
-    # Assumes inject_whale_anomalies is defined in your environment
-    injected_features = inject_whale_anomalies(features, **whale_params)
-    def get_trend_mask(data, span, local_z=2.0, breach_threshold=0.15, direction='future'):
-        """
-        data: shape [T, N] (Time, Stocks)
-        global_k: Multiplier for historical forecasted volatility range.
-        local_z: Multiplier for today's cross-sectional standard deviation.
-        breach_threshold: % of stocks that must breach the forecasted range to trigger Global Anomaly.
-        """
-        prices = data.squeeze(-1)
-        T, N = prices.shape
-        
-        # 1. Calculate Returns based on direction
-        shifts = np.zeros_like(prices)
-        if direction == 'future':
-            shifts[:-span] = prices[span:]
-            with np.errstate(divide='ignore', invalid='ignore'):
-                returns = (shifts - prices) / prices
-            returns[-span:] = 0 
-        else: # 'history'
-            shifts[span:] = prices[:-span]
-            with np.errstate(divide='ignore', invalid='ignore'):
-                returns = (prices - shifts) / shifts
-            returns[:span] = 0     
-
-        # --- LEVEL 1: GLOBAL ANOMALY (Historical Forecast) ---
-        # Calculate the average market return for each day
-        market_returns = np.mean(returns, axis=1)
-        
-        # Use pandas EWMA for fast 1-step ahead forecasting based on history
-        # span=20 is roughly a 1-month trading history memory
-        df_market = pd.Series(market_returns)
-        forecast_mu = df_market.ewm(span=20, adjust=False).mean().shift(1).fillna(0).values
-        
-        # Forecast Volatility (Variance) using EWMA
-        variance = (df_market - forecast_mu)**2
-        forecast_sigma = np.sqrt(variance.ewm(span=20, adjust=False).mean().shift(1).fillna(1e-4).values)
-        
-        # Expand shapes to broadcast against individual stocks [T, N]
-        forecast_mu_exp = np.expand_dims(forecast_mu, axis=1)
-        forecast_sigma_exp = np.expand_dims(forecast_sigma, axis=1)
-        
-        # Did the stock exceed the HISTORICALLY forecasted global range?
-        # (Checking if it's an MSE-style extreme outlier)
-
-        upper_bound = forecast_mu_exp + (local_z * forecast_sigma_exp)
-        lower_bound = forecast_mu_exp - (local_z * forecast_sigma_exp)
-        
-        breaches = (returns > upper_bound) | (returns < lower_bound)
-        
-        # If > X% of stocks breached the historically forecasted range, it's a global anomaly
-        breach_ratio = np.sum(breaches, axis=1) / N
-
-        global_mask = breach_ratio > breach_threshold
-        
-        # --- LEVEL 2: LOCAL ANOMALY (Cross-Sectional Peers Today) ---
-        # Calculate today's center of mass and dispersion (MAE style)
-        cross_mu = np.expand_dims(np.mean(returns, axis=1), axis=1)
-        cross_sigma = np.expand_dims(np.std(returns, axis=1) + 1e-8, axis=1)
-        
-        # Standardize stock's return based ONLY on what other stocks did today
-        local_z_scores = (returns - cross_mu) / cross_sigma
-        
-        # Local Mask: Did this specific stock deviate from the pack today?
-        local_mask = np.abs(local_z_scores) > local_z
-        
-        return global_mask, local_mask
-
-    # Synthetic block masks
-    F_injected_global, F_injected_local = get_trend_mask(injected_features, z_f, y_f, x_f, 'future')
-    H_injected_global, _ = get_trend_mask(injected_features, z_h, y_h, x_h, 'history')
-    
-    # Raw block masks
-    F_raw_global, F_raw_local = get_trend_mask(features, z_f, y_f, x_f, 'future')
-    H_raw_global, _ = get_trend_mask(features, z_h, y_h, x_h, 'history')
-
-    # --- PHASE 3: CONCATENATE TO 2x LENGTH ---
-    extended_features = np.concatenate([injected_features, features], axis=0)
-    extended_H_masks = np.concatenate([H_injected_global, H_raw_global], axis=0)
-    
-    # Format Targets
-    extended_F_global = np.concatenate([F_injected_global, F_raw_global], axis=0).astype(np.float32).reshape(-1, 1)
-    extended_F_local = np.concatenate([F_injected_local, F_raw_local], axis=0).astype(np.float32) # Shape: [2L, N]
-
-    # --- PHASE 4: FIT SCALER ON SYNTHETIC HALF ONLY ---
-    train_scaler_data = extended_features[:L - z_f] 
-    train_mean = np.mean(train_scaler_data)
-    train_std = np.std(train_scaler_data) + 1e-8 
-    scaled_extended_features = (extended_features - train_mean) / train_std
-
-    # --- PHASE 5: SMART INDEX ROUTING & AUGMENTATION ---
-    def filter_and_balance(start_idx, end_idx, augment=True):
-        pos_pool, neg_pool = [], []
-        
-        for i in range(start_idx, end_idx):
-            T = i + seq_len 
-            
-            if extended_H_masks[T]:
-                # We balance based on the GLOBAL trend to ensure equal regime exposure
-                if extended_F_global[T][0] == 1.0:
-                    pos_pool.append(i) 
-                else:
-                    neg_pool.append(i) 
-            elif augment == False:
-                neg_pool.append(i)
-
-        if not pos_pool or not neg_pool:
-            print(f"Warning: Missing classes in range {start_idx}-{end_idx}. Proceeding without balancing.")
-            return [(i, i+seq_len) for i in (pos_pool + neg_pool)]
-
-        if augment:
-            target_size = min(len(pos_pool), len(neg_pool))
-            pos_balanced = np.random.choice(pos_pool, target_size, replace=True).tolist()
-            neg_balanced = np.random.choice(neg_pool, target_size, replace=True).tolist()
-        else:
-            pos_balanced = pos_pool
-            neg_balanced = neg_pool
-
-        balanced_indices = pos_balanced + neg_balanced
-        np.random.shuffle(balanced_indices) 
-        
-        return [(i, i+seq_len) for i in balanced_indices]
-
-    idx = {'train': [], 'valid': [], 'test': []}
-
-    train_end_start_idx = L - seq_len - z_f
-    idx['train'] = filter_and_balance(0, train_end_start_idx, augment=True)
-
-    test_start = (2 * L) - testl - z_f - seq_len
-    idx['test'] = filter_and_balance(test_start, test_start + testl, augment=balance_eval)
-
-    valid_start = test_start - embargo - validl
-
-    if valid_start < L:
-         raise ValueError(f"validl/testl bleed into synthetic data at {valid_start}!")
-    idx['valid'] = filter_and_balance(valid_start, valid_start + validl, augment=balance_eval)
-
-    # --- PHASE 6: SAVE FILES ---
-    os.makedirs(save_path, exist_ok=True)
-    
-    with open(f'{save_path}/data_anomaly' + suffix + '.pkl', 'wb') as f:
-        pickle.dump({'processed_data': scaled_extended_features}, f)
-
-    # MERGE INTO DICTIONARY HERE
-    target_dict = {
-        'global': extended_F_global, # [2L, 1]
-        'local': extended_F_local    # [2L, N]
-    }
-
-    with open(f'{save_path}/label_anomaly' + suffix + '.pkl', 'wb') as f:
-        pickle.dump({'processed_data': target_dict}, f) 
-
-    with open(f'{save_path}/index_anomaly' + suffix + '.pkl', 'wb') as f:
-        pickle.dump(idx, f)
-
-    scaler = {
-        'func': 're_standard_transform',
-        'args': {'mean': float(train_mean), 'std': float(train_std)}
-    }
-    with open(f'{save_path}/scaler_anomaly' + suffix + '.pkl', 'wb') as f:
-        pickle.dump(scaler, f)
-
-    print(f"\n--- Output Complete ---")
-    print(f"Global Target Shape: {extended_F_global.shape}")
-    print(f"Local Target Shape: {extended_F_local.shape}")
-    print(f"Train samples (1:1 balanced): {len(idx['train'])}")
-    print(f"Train pos local: {F_injected_local.sum() / (F_injected_local.shape[0] * F_injected_local.shape[1])}")
+#     print(f"Train pos local: {F_injected_local.sum() / (F_injected_local.shape[0] * F_injected_local.shape[1])}")
 
 
 @dataclass
@@ -744,13 +585,13 @@ class ParametersForAD:
     num_anomalies: int = 0
     
     # 只影响训练集
-    x_h: float = 0.2
+    x_h: float = 0.5
     y_h: float = 1
     z_h: int = 1
     
     # 影响测试结果
     x_f: float = 0.2
-    y_f: float = 2.8
+    y_f: float = 3
     z_f: int = 1
 
     # # 2. History Thresholds (his)
@@ -803,7 +644,7 @@ if __name__ == "__main__":
         save_path2, 
         seq_len=cfg.seq_len, 
         testl=0.1,
-        validl=0.05,
+        validl=0.1,
         whale_params={
             'num_anomalies': cfg.num_anomalies, 
             'z_window': 2, # or z_window2

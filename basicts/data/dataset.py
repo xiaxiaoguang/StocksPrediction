@@ -5,8 +5,7 @@ from torch.utils.data import Dataset
 
 
 from ..utils import load_pkl
-sys.path.append('/home/srwang/trend_forecasting')
-from dataprovider.data_factory import data_provider
+from .data_provider import data_provider
 from .dataArgs import load_arg
 
 class NewTSDatasets(Dataset):
