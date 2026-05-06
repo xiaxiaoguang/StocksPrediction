@@ -32,7 +32,6 @@ def create_stock_data_numpy(save_folder_path, stock_list=None, cache_filename="m
             cached_data = joblib.load(cache_path)
             data_bnl = cached_data['data']
             valid_stocks = cached_data['stocks']
-
             print(f"[*] Successfully loaded from cache. Shape: {data_bnl.shape} (Timesteps, Stocks, Features)")
             return data_bnl
         except Exception as e:
@@ -237,17 +236,18 @@ def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=50
         if direction == 'future':
             shifts[:-span] = prices[span:]
             with np.errstate(divide='ignore', invalid='ignore'):
-                returns = (shifts - prices) / prices
+                returns = (shifts - prices) / (prices + 1e-9)
             returns[-span:] = 0 
         else:
             shifts[span:] = prices[:-span]
             with np.errstate(divide='ignore', invalid='ignore'):
-                returns = (prices - shifts) / shifts
-            returns[:span] = 0     
+                returns = (prices - shifts) / (prices + 1e-9)
+            returns[:span] = 0
 
         # --- LEVEL 1: GLOBAL ANOMALY (Historical Forecast) ---
         market_returns = np.mean(returns, axis=1)
         df_market = pd.Series(market_returns)
+
         forecast_mu = df_market.ewm(span=20, adjust=False).mean().shift(1).fillna(0).values
         variance = (df_market - forecast_mu)**2
         forecast_sigma = np.sqrt(variance.ewm(span=20, adjust=False).mean().shift(1).fillna(1e-4).values)
@@ -274,7 +274,7 @@ def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=50
         local_mask = np.zeros_like(returns, dtype=bool)
         
         # Step A: Find the indices of the Top 5 absolute z-scores for each day
-        top_k = min(5, N_stocks) # Safety check in case N < 5
+        top_k = min(N_stocks // 10, N_stocks) # Safety check in case N < 5
         # argsort sorts ascending, so we take the last 'top_k' elements per row
         top_k_indices = np.argsort(abs_z_scores, axis=1)[:, -top_k:] 
         
@@ -322,7 +322,7 @@ def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=50
                 pos_pool.append(i) 
             elif has_history_anomaly or (augment == False):
                 neg_pool.append(i)
-
+        print("pos_pool and neg_pool size ", len(pos_pool),len(neg_pool))
         if not pos_pool or not neg_pool:
             print(f"Warning: Missing classes in range {start_idx}-{end_idx}.")
             return [(i, i+seq_len) for i in (pos_pool + neg_pool)]
@@ -585,13 +585,13 @@ class ParametersForAD:
     num_anomalies: int = 0
     
     # 只影响训练集
-    x_h: float = 0.5
+    x_h: float = 0.3
     y_h: float = 1
     z_h: int = 1
     
     # 影响测试结果
-    x_f: float = 0.2
-    y_f: float = 3
+    x_f: float = 0.3
+    y_f: float = 4
     z_f: int = 1
 
     # # 2. History Thresholds (his)
@@ -610,9 +610,10 @@ class ParametersForAD:
 
 cfg = ParametersForAD()
 np.random.seed(42)
-suffix = ''
 suffix = '_300'
-name = "Minute_Origin_data" + suffix
+suffix = ''
+name = "Minute_Origin_data"
+save_path2 = name + 'A'  + suffix
 save_path = 'raw_data'
 custom_cache_name = f"Minute_Origin_data_multivariate_aligned" + suffix + '.pkl'
 
@@ -636,8 +637,24 @@ if __name__ == "__main__":
     # Create a unique cache name based on the dataset being loaded
     
     features = create_stock_data_numpy(save_path, cache_filename=custom_cache_name)
-        
-    save_path2 = name + 'A'
+    # if features.shape[0] > 0:
+    #         # 1. Calculate the mean, EXCLUDING zeros.
+    #         # We make a temporary copy of day 0 where 0s are turned to NaNs, 
+    #         # so nanmean() will correctly ignore them.
+    #         temp_first_day = np.where(features[0] == 0, np.nan, features[0])
+    #         first_day_means = np.nanmean(temp_first_day, axis=0)
+            
+    #         # Catch edge case: if ALL stocks are 0 for a specific feature, nanmean returns NaN.
+    #         first_day_means = np.nan_to_num(first_day_means, nan=1e-6)
+            
+    #         # 2. Replace 0s on the first day with the calculated averages.
+    #         # (Using features[0] == 0 instead of np.iszero)
+    #         features[0] = np.where(features[0] == 0, first_day_means, features[0])
+            
+    #         # 3. Forward Fill: Iterate through time, replacing 0s with yesterday's price
+    #         for t in range(1, features.shape[0]):
+    #             features[t] = np.where(features[t] == 0, features[t-1], features[t])
+
     generate_enhanced_anomaly_datasets(
         features, 
         save_path2, 
