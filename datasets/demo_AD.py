@@ -610,13 +610,14 @@ class ParametersForAD:
 
 cfg = ParametersForAD()
 np.random.seed(42)
-suffix = '_300'
 suffix = ''
-name = "Minute_Origin_data" + suffix
+suffix = '_300'
+name = "Minute_Origin_data"
+save_path2 = name + 'A'  + suffix
 save_path = 'raw_data'
 custom_cache_name = f"Minute_Origin_data_multivariate_aligned" + suffix + '.pkl'
-# custom_cache_name = f"{name}_multivariate_aligned_300.pkl"
 
+# custom_cache_name = f"{name}_multivariate_aligned_300.pkl"
 # if "csi500" in name:
 #     save_path = f'raw_data/{name}/'
 #     stock_list = (
@@ -632,13 +633,11 @@ custom_cache_name = f"Minute_Origin_data_multivariate_aligned" + suffix + '.pkl'
 #     )
 #     print("Using the constituent stocks of market index CSI300.")
 
-
 if __name__ == "__main__":
     # Create a unique cache name based on the dataset being loaded
     
     features = create_stock_data_numpy(save_path, cache_filename=custom_cache_name)
         
-    save_path2 = name + 'A'
     generate_enhanced_anomaly_datasets(
         features, 
         save_path2, 
