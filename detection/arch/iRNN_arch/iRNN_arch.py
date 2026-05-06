@@ -45,6 +45,7 @@ class iRNNAnomalyDetector(nn.Module):
 
     def detect(self, x_enc):
         # x_enc shape: [B, L, N]
+        breakpoint()
         if self.use_norm:
             means = x_enc.mean(1, keepdim=True).detach()
             x_enc = x_enc - means

@@ -47,9 +47,10 @@ class Norm(nn.Module):
     def _get_statistics(self, x):
         dim2reduce = self.selected_features
         self.mean = torch.mean(x, dim=dim2reduce, keepdim=True).detach()
+        self.stdev = torch.sqrt(torch.var(x, dim=dim2reduce, keepdim=True, unbiased=False) + 1e-5).detach()
 
     def _normalize(self, x):
-        x = x - self.mean
+        x = (x - self.mean) / self.stdev
         if self.affine:
             x = x * self.affine_weight
             x = x + self.affine_bias
@@ -59,7 +60,7 @@ class Norm(nn.Module):
         if self.affine:
             x = x - self.affine_bias
             x = x / (self.affine_weight + self.eps)
-        x = x + self.mean
+        x = (x * self.stdev + self.mean)
         return x
 
 class LinearBlock(nn.Module):
@@ -146,7 +147,7 @@ class LinearBlock(nn.Module):
         x_res = [x] * self.n_layer
 
         for i in range(self.n_layer):
-            temp = self.linIn[i](x)    
+            temp = self.linIn[i](x)  
             temp = self.act(temp)
             temp = self.dropout(temp)
             x_res[i] = temp
@@ -179,11 +180,10 @@ class TimeEncoder(nn.Module):
     def __init__(self, configs):
         super().__init__()
         self.n_layer = configs['n_layer']
-        self.norm_layer = Norm(configs['input_dim'],selected=(1,))
+        self.norm_layer = Norm(configs['input_dim'],selected=(2,), affine=False)
 
         # if configs.patch_level != -1:
         #     self.multi_level_patch_embed_layer = ML_Patch_Embedding(configs.seq_len,configs.patch_dim,configs.patch_level,nn.Linear)
-
         self.real_layer = LinearBlock(configs, 'Real')
         self.complex_layer = LinearBlock(configs, 'Complex')
         self.quaternion_layer = LinearBlock(configs, 'Quaternion')
@@ -201,6 +201,7 @@ class TimeEncoder(nn.Module):
     def forward(self, x):
 
         x = torch.permute(x, (0, 2, 1))
+        x = self.norm_layer(x,  'norm')
 
         if hasattr(self,'multi_level_patch_embed_layer'): 
             x = self.multi_level_patch_embed_layer(x)
@@ -222,7 +223,7 @@ class TimeEncoder(nn.Module):
 
         stack_real = torch.cat([re_real, bi_real, qu_real, oc_real],dim=-1)
         # stack_real = torch.cat([re_real, bi_real],dim=-1)
-
+        # stack_real = re_real
         # enc = self.final_fusion(stack_real)
         enc = stack_real
         return enc
