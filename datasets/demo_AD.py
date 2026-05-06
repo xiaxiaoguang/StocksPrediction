@@ -610,13 +610,13 @@ class ParametersForAD:
 
 cfg = ParametersForAD()
 np.random.seed(42)
-suffix = '_300'
 suffix = ''
+suffix = '_300'
 name = "Minute_Origin_data" + suffix
 save_path = 'raw_data'
 custom_cache_name = f"Minute_Origin_data_multivariate_aligned" + suffix + '.pkl'
-# custom_cache_name = f"{name}_multivariate_aligned_300.pkl"
 
+# custom_cache_name = f"{name}_multivariate_aligned_300.pkl"
 # if "csi500" in name:
 #     save_path = f'raw_data/{name}/'
 #     stock_list = (
@@ -631,7 +631,6 @@ custom_cache_name = f"Minute_Origin_data_multivariate_aligned" + suffix + '.pkl'
 #                 index_code="399300.SZ").iloc[:50]["con_code"].tolist()
 #     )
 #     print("Using the constituent stocks of market index CSI300.")
-
 
 if __name__ == "__main__":
     # Create a unique cache name based on the dataset being loaded

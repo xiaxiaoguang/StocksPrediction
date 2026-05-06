@@ -26,6 +26,7 @@ CFG.DESCRIPTION = "iTransformer2 (AD) configuration"
 CFG.RUNNER = iTransformer2AnomalyRunner
 CFG.DATASET_CLS = AnomalyDetectionDataset
 CFG.DATASET_NAME = "Minute_Origin_dataA"
+CFG.DATASET_NAME = "Minute_Origin_dataA_300"
 CFG.DATASET_TYPE = "Finance data"
 
 SEQ_LEN = 24

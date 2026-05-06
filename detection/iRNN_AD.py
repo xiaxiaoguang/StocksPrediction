@@ -8,8 +8,8 @@ from easydict import EasyDict
 from basicts.utils.serialization import load_adj
 
 from .arch import iRNNAnomalyDetector
-from .runner import iTransformerAnomalyRunner
-from .loss import BinaryDetectionLoss
+from .runner import iTransformer2AnomalyRunner
+from .loss import MultiObjectiveDetectionLoss
 from .data import AnomalyDetectionDataset
 
 
@@ -23,23 +23,19 @@ CFG.TEST_ONLY = False
 # CFG.MD5 = "latest/"
 # ================= general ================= #
 CFG.DESCRIPTION = "iRNN (AD) configuration"
-CFG.RUNNER = iTransformerAnomalyRunner
+CFG.RUNNER = iTransformer2AnomalyRunner
 CFG.DATASET_CLS = AnomalyDetectionDataset
-CFG.DATASET_NAME = "csi500A"
+CFG.DATASET_NAME = "Minute_Origin_dataA"
 CFG.DATASET_TYPE = "Finance data"
 
-CFG.DATAPARAM = {
-    "seq_len": 12,
-    "num_anomalies": 1000,
-    "x_h": 0.1, "x_f": 0.4,
-    "y_h": 0.07, "y_f": 0.05,
-    "z_h": 3, "z_f": 3,
-}
-
-ALL_BATCH_SIZE = 32
-SEQ_LEN = 12
+ALL_BATCH_SIZE = 128
+SEQ_LEN = 24
 OUT_LEN  = 1
-EMBED_DIM = 32
+EMBED_DIM = 64
+
+from .NumerMoe_AD import DATAPARAM
+CFG.DATAPARAM = DATAPARAM
+
 
 CFG.DATASET_INPUT_LEN = SEQ_LEN
 CFG.DATASET_OUTPUT_LEN = OUT_LEN
@@ -68,7 +64,7 @@ CFG.MODEL.TARGET_FEATURES = [0]
 CFG.MODEL.DDP_FIND_UNUSED_PARAMETERS = True
 
 # ================= optim ================= #
-CFG.TRAIN.LOSS = BinaryDetectionLoss()
+CFG.TRAIN.LOSS = MultiObjectiveDetectionLoss
 CFG.TRAIN.OPTIM = EasyDict()
 CFG.TRAIN.OPTIM.TYPE = "Adam"
 CFG.TRAIN.OPTIM.PARAM= {
