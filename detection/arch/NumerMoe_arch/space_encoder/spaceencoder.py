@@ -104,6 +104,7 @@ class SpaceEncoder(nn.Module):
             SpaceEncoderLayer(d_model, n_heads, num_experts, d_ff, top_k, dropout)
             for _ in range(num_layers)
         ])
+
         # self.layers = nn.ModuleList([nn.LSTM(d_model,
         #                      hidden_size=d_model // 2,
         #                      num_layers=num_layers,
@@ -116,7 +117,6 @@ class SpaceEncoder(nn.Module):
         # x expected shape: [Batch, Num_Stocks, d_model]
         x = x + self.pos_embed[:, :x.size(1), :]
         x = self.pos_drop(x)
-        
         for layer in self.layers:
             x = layer(x)
         return x

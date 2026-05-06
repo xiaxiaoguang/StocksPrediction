@@ -14,7 +14,7 @@ from .data import AnomalyDetectionDataset
 
 CFG = EasyDict()
 CFG.TRAIN = EasyDict()
-CFG.NOTE = {"NumerGRU 2layer lstm"}
+CFG.NOTE = {"NumerMOE 5Layers"}
 
 CFG.TEST_ONLY = False
 # CFG.TEST_ONLY = True
@@ -32,11 +32,12 @@ ALL_BATCH_SIZE = 128
 SEQ_LEN = 24
 OUT_LEN  = 64
 NUM_VARIABLE = 50
+DROPOUT = 0.5
 DATAPARAM = {
     "seq_len": SEQ_LEN,
     "num_anomalies": 0,
-    "x_h": 0.5, "x_f": 0.2,
-    "y_h": 1, "y_f": 3,
+    "x_h": 0.3, "x_f": 0.3,
+    "y_h": 1, "y_f": 4,
     "z_h": 1, "z_f": 1,
 }
 
@@ -62,19 +63,19 @@ CFG.MODEL.PARAM = {
         'seq_len':SEQ_LEN,
         'pre_len':OUT_LEN,
         'input_dim':1,
-        'd_model':[32,16],
+        'd_model':[64,16],
         "n_layer":2,
-        "dropout":0.5,
+        "dropout":DROPOUT,
         "patch_level":-1,
     },
 
     "spc_configs":{
-        'd_model':OUT_LEN*4,
+        'd_model':OUT_LEN*2,
         'n_heads': 4,
-        'num_layers':4,
+        'num_layers':5,
         'num_experts':4,
-        'dropout':0.5,
         'top_k':2,
+        'dropout':DROPOUT,
         'd_ff':256,
         'num_stocks':NUM_VARIABLE,
     }
@@ -120,8 +121,8 @@ CFG.TRAIN.DATA.DIR = "datasets/" + CFG.DATASET_NAME
 # dataloader args, optional
 CFG.TRAIN.DATA.BATCH_SIZE = ALL_BATCH_SIZE
 CFG.TRAIN.DATA.PREFETCH = False
-CFG.TRAIN.DATA.SHUFFLE = False
-CFG.TRAIN.DATA.NUM_WORKERS = 1
+CFG.TRAIN.DATA.SHUFFLE = True
+CFG.TRAIN.DATA.NUM_WORKERS = 2
 CFG.TRAIN.DATA.PIN_MEMORY = True
 
 # ================= validate ================= #
@@ -135,7 +136,7 @@ CFG.VAL.DATA.DIR = "datasets/" + CFG.DATASET_NAME
 CFG.VAL.DATA.BATCH_SIZE = ALL_BATCH_SIZE
 CFG.VAL.DATA.PREFETCH = False
 CFG.VAL.DATA.SHUFFLE = False
-CFG.VAL.DATA.NUM_WORKERS = 1
+CFG.VAL.DATA.NUM_WORKERS = 2
 CFG.VAL.DATA.PIN_MEMORY = False
 
 # ================= test ================= #
@@ -150,5 +151,5 @@ CFG.TEST.DATA.DIR = "datasets/" + CFG.DATASET_NAME
 CFG.TEST.DATA.BATCH_SIZE = ALL_BATCH_SIZE
 CFG.TEST.DATA.PREFETCH = False
 CFG.TEST.DATA.SHUFFLE = False
-CFG.TEST.DATA.NUM_WORKERS = 1
+CFG.TEST.DATA.NUM_WORKERS = 2
 CFG.TEST.DATA.PIN_MEMORY = False
