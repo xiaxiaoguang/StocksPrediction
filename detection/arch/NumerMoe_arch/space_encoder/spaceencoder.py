@@ -94,15 +94,24 @@ class SpaceEncoder(nn.Module):
         num_experts = getattr(spc_configs, 'num_experts', 4)
         top_k = getattr(spc_configs, 'top_k', 2)
         d_ff = getattr(spc_configs, 'd_ff', d_model * 4)
-        dropout = getattr(spc_configs, 'dropout', 0.1)
+        dropout = getattr(spc_configs, 'dropout', 0.5)
 
         self.layers = nn.ModuleList([
             SpaceEncoderLayer(d_model, n_heads, num_experts, d_ff, top_k, dropout)
             for _ in range(num_layers)
         ])
+        
+        self.layers = nn.ModuleList([nn.GRU(d_model,
+                             hidden_size=d_model // 2,
+                             num_layers=num_layers,
+                             dropout=dropout,
+                             batch_first=True,
+                             bidirectional=True,)])
+
 
     def forward(self, x):
         # x expected shape: [Batch, Num_Stocks, d_model]
         for layer in self.layers:
-            x = layer(x)
+            x,_ = layer(x)
+        # breakpoint()
         return x

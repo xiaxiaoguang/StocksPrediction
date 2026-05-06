@@ -51,13 +51,13 @@ class MultiObjectiveDetectionLoss(nn.Module):
         - 'local': Tensor of shape [B, N]
         """
         # # 1. Global Trend Loss
-        # logits_g = preds['global']
-        # labels_g = targets['global'].float()
+        logits_g = preds['global']
+        labels_g = targets['global'].float()
 
-        # if self.loss_global.pos_weight is not None:
-        #     self.loss_global.pos_weight = self.loss_global.pos_weight.to(logits_g.device)
+        if self.loss_global.pos_weight is not None:
+            self.loss_global.pos_weight = self.loss_global.pos_weight.to(logits_g.device)
             
-        # loss_g = self.loss_global(logits_g, labels_g)
+        loss_g = self.loss_global(logits_g, labels_g)
         
         # 2. Individual Stocks Loss
         logits_l = preds['local']
