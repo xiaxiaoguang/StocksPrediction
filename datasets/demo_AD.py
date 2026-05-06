@@ -32,7 +32,6 @@ def create_stock_data_numpy(save_folder_path, stock_list=None, cache_filename="m
             cached_data = joblib.load(cache_path)
             data_bnl = cached_data['data']
             valid_stocks = cached_data['stocks']
-
             print(f"[*] Successfully loaded from cache. Shape: {data_bnl.shape} (Timesteps, Stocks, Features)")
             return data_bnl
         except Exception as e:
@@ -237,12 +236,12 @@ def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=50
         if direction == 'future':
             shifts[:-span] = prices[span:]
             with np.errstate(divide='ignore', invalid='ignore'):
-                returns = (shifts - prices) / prices
+                returns = (shifts - prices) / (prices + 1e-8)
             returns[-span:] = 0 
         else:
             shifts[span:] = prices[:-span]
             with np.errstate(divide='ignore', invalid='ignore'):
-                returns = (prices - shifts) / shifts
+                returns = (prices - shifts) / (prices + 1e-8)
             returns[:span] = 0     
 
         # --- LEVEL 1: GLOBAL ANOMALY (Historical Forecast) ---
@@ -590,7 +589,7 @@ class ParametersForAD:
     z_h: int = 1
     
     # 影响测试结果
-    x_f: float = 0.2
+    x_f: float = 0.3
     y_f: float = 3
     z_f: int = 1
 
@@ -610,8 +609,8 @@ class ParametersForAD:
 
 cfg = ParametersForAD()
 np.random.seed(42)
-suffix = ''
 suffix = '_300'
+suffix = ''
 name = "Minute_Origin_data"
 save_path2 = name + 'A'  + suffix
 save_path = 'raw_data'

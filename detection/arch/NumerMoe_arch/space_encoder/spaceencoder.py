@@ -95,23 +95,28 @@ class SpaceEncoder(nn.Module):
         top_k = getattr(spc_configs, 'top_k', 2)
         d_ff = getattr(spc_configs, 'd_ff', d_model * 4)
         dropout = getattr(spc_configs, 'dropout', 0.5)
+        num_stocks = getattr(spc_configs, 'num_stocks', 50)
+
+        self.pos_embed = nn.Parameter(torch.randn(1, num_stocks, d_model) * 0.02)
+        self.pos_drop = nn.Dropout(p=dropout)
 
         self.layers = nn.ModuleList([
             SpaceEncoderLayer(d_model, n_heads, num_experts, d_ff, top_k, dropout)
             for _ in range(num_layers)
         ])
-        
-        self.layers = nn.ModuleList([nn.GRU(d_model,
-                             hidden_size=d_model // 2,
-                             num_layers=num_layers,
-                             dropout=dropout,
-                             batch_first=True,
-                             bidirectional=True,)])
+        # self.layers = nn.ModuleList([nn.LSTM(d_model,
+        #                      hidden_size=d_model // 2,
+        #                      num_layers=num_layers,
+        #                      dropout=dropout,
+        #                      batch_first=True,
+        #                      bidirectional=True,)])
 
 
     def forward(self, x):
         # x expected shape: [Batch, Num_Stocks, d_model]
+        x = x + self.pos_embed[:, :x.size(1), :]
+        x = self.pos_drop(x)
+        
         for layer in self.layers:
-            x,_ = layer(x)
-        # breakpoint()
+            x = layer(x)
         return x

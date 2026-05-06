@@ -14,7 +14,7 @@ from .data import AnomalyDetectionDataset
 
 CFG = EasyDict()
 CFG.TRAIN = EasyDict()
-CFG.NOTE = {"NumerGRU 64+16"}
+CFG.NOTE = {"NumerGRU 2layer lstm"}
 
 CFG.TEST_ONLY = False
 # CFG.TEST_ONLY = True
@@ -31,7 +31,7 @@ CFG.DATASET_TYPE = "Finance data"
 ALL_BATCH_SIZE = 128
 SEQ_LEN = 24
 OUT_LEN  = 64
-
+NUM_VARIABLE = 50
 DATAPARAM = {
     "seq_len": SEQ_LEN,
     "num_anomalies": 0,
@@ -76,6 +76,7 @@ CFG.MODEL.PARAM = {
         'dropout':0.5,
         'top_k':2,
         'd_ff':256,
+        'num_stocks':NUM_VARIABLE,
     }
 }
 
