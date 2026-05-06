@@ -35,8 +35,8 @@ OUT_LEN  = 64
 DATAPARAM = {
     "seq_len": SEQ_LEN,
     "num_anomalies": 0,
-    "x_h": 0.5, "x_f": 0.2,
-    "y_h": 1, "y_f": 3,
+    "x_h": 0.3, "x_f": 0.3,
+    "y_h": 1, "y_f": 4,
     "z_h": 1, "z_f": 1,
 }
 
