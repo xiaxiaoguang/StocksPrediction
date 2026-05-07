@@ -17,6 +17,7 @@ class NumerMoe(nn.Module):
         self.temporal = TimeEncoder(tim_configs)
         self.spatial  = SpaceEncoder(spc_configs)
         self.norm = nn.LayerNorm(d_model)
+        
         # NEW: Anomaly Detection Head
         # Input size is d_model * 2 because we will concatenate Mean and Max pooling
         self.detector = nn.Sequential(
@@ -34,7 +35,8 @@ class NumerMoe(nn.Module):
     def detect(self, x_enc):
         x_enc = self.temporal(x_enc)
         x_enc = self.spatial(x_enc)
-
+        x_enc = self.norm(x_enc)
+        
         logits_local = self.detector(x_enc).squeeze(-1)
 
         mean_pool = torch.mean(x_enc, dim=1) # [B, E]

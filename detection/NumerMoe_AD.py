@@ -14,7 +14,7 @@ from .data import AnomalyDetectionDataset
 
 CFG = EasyDict()
 CFG.TRAIN = EasyDict()
-CFG.NOTE = {"NumerMOE 5Layers"}
+CFG.NOTE = {"NumerMOE Final final"}
 
 CFG.TEST_ONLY = False
 # CFG.TEST_ONLY = True
@@ -31,8 +31,10 @@ CFG.DATASET_TYPE = "Finance data"
 ALL_BATCH_SIZE = 128
 SEQ_LEN = 24
 OUT_LEN  = 64
+D_FF = 256
 NUM_VARIABLE = 50
 DROPOUT = 0.5
+
 DATAPARAM = {
     "seq_len": SEQ_LEN,
     "num_anomalies": 0,
@@ -70,13 +72,13 @@ CFG.MODEL.PARAM = {
     },
 
     "spc_configs":{
-        'd_model':OUT_LEN*2,
-        'n_heads': 4,
-        'num_layers':5,
+        'd_model':OUT_LEN*4,
+        'n_heads':    4,
+        'num_layers' :4,
         'num_experts':4,
-        'top_k':2,
+        'top_k'      :2,
         'dropout':DROPOUT,
-        'd_ff':256,
+        'd_ff':D_FF,
         'num_stocks':NUM_VARIABLE,
     }
 }
