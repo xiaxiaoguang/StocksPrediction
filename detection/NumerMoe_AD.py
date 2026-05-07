@@ -14,7 +14,7 @@ from .data import AnomalyDetectionDataset
 
 CFG = EasyDict()
 CFG.TRAIN = EasyDict()
-CFG.NOTE = {"NumerGRU 64+16"}
+CFG.NOTE = {"NumerMOE Final final"}
 
 CFG.TEST_ONLY = False
 # CFG.TEST_ONLY = True
@@ -31,6 +31,9 @@ CFG.DATASET_TYPE = "Finance data"
 ALL_BATCH_SIZE = 128
 SEQ_LEN = 24
 OUT_LEN  = 64
+D_FF = 256
+NUM_VARIABLE = 50
+DROPOUT = 0.5
 
 DATAPARAM = {
     "seq_len": SEQ_LEN,
@@ -62,20 +65,21 @@ CFG.MODEL.PARAM = {
         'seq_len':SEQ_LEN,
         'pre_len':OUT_LEN,
         'input_dim':1,
-        'd_model':[32,16],
+        'd_model':[64,16],
         "n_layer":2,
-        "dropout":0.5,
+        "dropout":DROPOUT,
         "patch_level":-1,
     },
 
     "spc_configs":{
         'd_model':OUT_LEN*4,
-        'n_heads': 4,
-        'num_layers':4,
+        'n_heads':    4,
+        'num_layers' :4,
         'num_experts':4,
-        'dropout':0.5,
-        'top_k':2,
-        'd_ff':256,
+        'top_k'      :2,
+        'dropout':DROPOUT,
+        'd_ff':D_FF,
+        'num_stocks':NUM_VARIABLE,
     }
 }
 
@@ -119,8 +123,8 @@ CFG.TRAIN.DATA.DIR = "datasets/" + CFG.DATASET_NAME
 # dataloader args, optional
 CFG.TRAIN.DATA.BATCH_SIZE = ALL_BATCH_SIZE
 CFG.TRAIN.DATA.PREFETCH = False
-CFG.TRAIN.DATA.SHUFFLE = False
-CFG.TRAIN.DATA.NUM_WORKERS = 1
+CFG.TRAIN.DATA.SHUFFLE = True
+CFG.TRAIN.DATA.NUM_WORKERS = 2
 CFG.TRAIN.DATA.PIN_MEMORY = True
 
 # ================= validate ================= #
@@ -134,7 +138,7 @@ CFG.VAL.DATA.DIR = "datasets/" + CFG.DATASET_NAME
 CFG.VAL.DATA.BATCH_SIZE = ALL_BATCH_SIZE
 CFG.VAL.DATA.PREFETCH = False
 CFG.VAL.DATA.SHUFFLE = False
-CFG.VAL.DATA.NUM_WORKERS = 1
+CFG.VAL.DATA.NUM_WORKERS = 2
 CFG.VAL.DATA.PIN_MEMORY = False
 
 # ================= test ================= #
@@ -149,5 +153,5 @@ CFG.TEST.DATA.DIR = "datasets/" + CFG.DATASET_NAME
 CFG.TEST.DATA.BATCH_SIZE = ALL_BATCH_SIZE
 CFG.TEST.DATA.PREFETCH = False
 CFG.TEST.DATA.SHUFFLE = False
-CFG.TEST.DATA.NUM_WORKERS = 1
+CFG.TEST.DATA.NUM_WORKERS = 2
 CFG.TEST.DATA.PIN_MEMORY = False

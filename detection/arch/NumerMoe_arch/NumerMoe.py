@@ -12,29 +12,31 @@ class NumerMoe(nn.Module):
     def __init__(self, tim_configs, spc_configs):
         super(NumerMoe, self).__init__()
         d_model = spc_configs["d_model"]
+        dropout = spc_configs["dropout"]
 
         self.temporal = TimeEncoder(tim_configs)
         self.spatial  = SpaceEncoder(spc_configs)
         self.norm = nn.LayerNorm(d_model)
+        
         # NEW: Anomaly Detection Head
         # Input size is d_model * 2 because we will concatenate Mean and Max pooling
         self.detector = nn.Sequential(
             nn.Linear(d_model, 1),
+            nn.Dropout(dropout // 2),
         )
+
         self.detector2 = nn.Sequential(
             nn.Linear(d_model * 2, d_model // 2),
             nn.GELU(),
-            nn.Dropout(0.3),
+            nn.Dropout(dropout // 2),
             nn.Linear(d_model // 2, 1)
         )
 
-
     def detect(self, x_enc):
-        # x_enc = x_enc.transpose(-1,-2)
         x_enc = self.temporal(x_enc)
         x_enc = self.spatial(x_enc)
-
         x_enc = self.norm(x_enc)
+        
         logits_local = self.detector(x_enc).squeeze(-1)
 
         mean_pool = torch.mean(x_enc, dim=1) # [B, E]

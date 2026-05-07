@@ -196,7 +196,7 @@ class TimeEncoder(nn.Module):
         # self.mean_fusion_layer = nn.Linear(5,configs.pred_len)
         # self.output_layer_mean = nn.Linear(configs.pred_len,5)
         # self.output_layer_var  = nn.Linear(configs.pred_len,5)
-        # self.final_fusion = nn.Linear(configs['pre_len'] * 4 , configs['pre_len'] * 2)
+        self.final_fusion = nn.Linear(configs['pre_len'] * 5 , configs['pre_len'] * 2)
 
     def forward(self, x):
 
@@ -221,6 +221,7 @@ class TimeEncoder(nn.Module):
         if hasattr(self,'sedenion_layer'):
             se,se_real = self.sedenion_layer(x)
 
+        # stack_real = torch.cat([re_real, bi_real, qu_real],dim=-1)
         stack_real = torch.cat([re_real, bi_real, qu_real, oc_real],dim=-1)
         # stack_real = torch.cat([re_real, bi_real],dim=-1)
         # stack_real = re_real
