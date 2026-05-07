@@ -610,8 +610,8 @@ class ParametersForAD:
 
 cfg = ParametersForAD()
 np.random.seed(42)
-suffix = ''
 suffix = '_300'
+suffix = ''
 name = "Minute_Origin_data"
 save_path2 = name + 'A'  + suffix
 save_path = 'raw_data'
