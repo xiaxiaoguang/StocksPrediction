@@ -203,10 +203,10 @@ class GraphWaveNet(nn.Module):
 
 
             x = self.bn[i](x)
+
         # Process Pre-trained Hidden States
         ht = self.fc_his_t(hidden_states[:, :, :96]).transpose(1, 2).unsqueeze(-1)
         hs = self.fc_his_s(hidden_states[:, :, 96:]).transpose(1, 2).unsqueeze(-1)
-
         # Collapse 'skip' to match hidden states temporal size (1)
         skip = self.temporal_pool(skip) 
         skip = skip + ht + hs        
@@ -214,6 +214,6 @@ class GraphWaveNet(nn.Module):
         x = F.relu(skip)
         x = F.relu(self.end_conv_1(x))
         x = self.end_conv_2(x).squeeze(-1) # [B, 1, N, 1] - > [B, N , 1]
-        x = self.max_pool(x).squeeze(1) 
+        x1 = self.max_pool(x).squeeze(1) 
 
-        return x # [B, 1] - Variable-level logits
+        return x.squeeze(1),x1 

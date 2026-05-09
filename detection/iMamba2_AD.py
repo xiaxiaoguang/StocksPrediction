@@ -26,11 +26,12 @@ CFG.DESCRIPTION = "iMamba2 (AD) configuration"
 CFG.RUNNER = iTransformer2AnomalyRunner
 CFG.DATASET_CLS = AnomalyDetectionDataset
 CFG.DATASET_NAME = "Minute_Origin_dataA"
+CFG.DATASET_NAME = "Minute_Origin_dataA_300"
 CFG.DATASET_TYPE = "Finance data"
 
 
 ALL_BATCH_SIZE = 128
-SEQ_LEN = 24
+SEQ_LEN = 48
 OUT_LEN  = 1
 EMBED_DIM = 128
 
@@ -75,7 +76,7 @@ CFG.TRAIN.LOSS = MultiObjectiveDetectionLoss
 CFG.TRAIN.OPTIM = EasyDict()
 CFG.TRAIN.OPTIM.TYPE = "Adam"
 CFG.TRAIN.OPTIM.PARAM= {
-    "lr":1e-4,
+    "lr":1e-3,
     "amsgrad":True, # ?
     "weight_decay":1e-5,
     "eps":1.0e-8,

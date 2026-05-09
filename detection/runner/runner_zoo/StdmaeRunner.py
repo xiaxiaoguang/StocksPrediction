@@ -3,7 +3,7 @@ import torch.nn as nn
 import os
 import matplotlib.pyplot as plt
 import numpy as np
-
+from functools import partial
 # Assuming these are available in your environment based on the iTransformer example
 from ..base_adt_runner import AnomalyDetectionRunner 
 from detection.metric import detection_accuracy, detection_precision, detection_recall, detection_f1, detection_auc
@@ -19,15 +19,19 @@ class STDMAEAnomalyRunner(AnomalyDetectionRunner):
 
         # 1. Setup Classification Metrics
         self.metrics = {
-            "Accuracy": detection_accuracy,
-            "Precision": detection_precision,
-            "Recall": detection_recall,
-            "F1": detection_f1,
-            "AUC": detection_auc
+            "Accuracy": partial(detection_accuracy, task='global'),
+            "F1": partial(detection_f1, task='global'),
+            "AUC": partial(detection_auc, task='global'),
+            # Local (Stock-Specific) Metrics
+            "Local_Accuracy": partial(detection_accuracy, task='local'),
+            "Local_Precision": partial(detection_precision, task='local'),
+            "Local_Recall": partial(detection_recall, task='local'),
+            "Local_F1": partial(detection_f1, task='local'),
+            "Local_AUC": partial(detection_auc, task='local'),        
         }
-        
+        self.use_local=True
+
         self.forward_features = cfg["MODEL"].get("FORWARD_FEATURES", None)
-        # Note: target_features is usually not needed for binary classification [B, 1]
 
     def select_input_features(self, data: torch.Tensor) -> torch.Tensor:
         if self.forward_features is not None:
@@ -51,7 +55,8 @@ class STDMAEAnomalyRunner(AnomalyDetectionRunner):
         
         history_data = self.to_running_device(history_data)      # [B, L_short, N, C]
         long_history_data = self.to_running_device(history_data) # [B, L_long, N, C]
-        labels = self.to_running_device(labels)                  # [B, 1]
+        labels['global'] = self.to_running_device(labels['global'])              # [B, N]
+        labels['local'] = self.to_running_device(labels['local'])              # [B, N]
 
         # 2. Feature Selection
         history_data = self.select_input_features(history_data)
@@ -67,35 +72,49 @@ class STDMAEAnomalyRunner(AnomalyDetectionRunner):
             epoch=epoch
         )
 
-        # 4. Shape Validation
-        # Based on your previous requirement: output shape should be [B, 1]
-        batch_size = history_data.shape[0]
-        if logits.shape != (batch_size, 1):
-            # Fallback/Safety: If backend returns [B, N], condense to [B, 1]
-            if len(logits.shape) > 1 and logits.shape[1] > 1:
-                logits = torch.mean(logits, dim=1, keepdim=True)
+        if train and ((iter_num % 1000) == 0) and epoch is not None:
+            try:
+                self._visualize_results(history_data, logits['global'], labels['global'], epoch)
+            except Exception as e:
+                print(f"Visualization failed at epoch {epoch}: {e}")
 
-        # 5. Visualization (Optional)
-        if train and (iter_num % 500 == 0) and epoch is not None:
-            self._visualize_anomaly(history_data, logits, labels, epoch)
-
-        # Return logits and labels for the Loss function (e.g., Binary Cross Entropy)
-        # We also return GSL components in case your loss function includes Graph Sparsity constraints
         return logits, labels
 
-    def _visualize_anomaly(self, history, logits, labels, epoch):
-        """Visualizes the short-term history and anomaly probability."""
+
+    def _visualize_results(self, history, logits, labels, epoch):
+        """
+        Visualizes the input sequence and the model's binary prediction.
+        history: [B, L, N, C]
+        logits: [B, 1]
+        labels: [B, 1]
+        """
         save_path = os.path.join(self.ckpt_save_dir, 'plots')
         os.makedirs(save_path, exist_ok=True)
 
-        # Average across nodes for visualization
-        hist_plot = history[0, :, :, 0].mean(dim=-1).detach().cpu().numpy()
-        prob = torch.sigmoid(logits[0]).item()
-        true_label = labels[0].item()
+        # 1. Get the first sample in the batch
+        # Calculate the market average across all N nodes for the plot
+        hist_avg = history[0, :, :, 0].mean(dim=-1).detach().cpu().numpy()
+        
+        # 2. Extract Prediction and Target
+        prob = torch.sigmoid(logits[0]).detach().cpu().item()
+        pred_class = 1 if prob > 0.5 else 0
+        true_class = int(labels[0].detach().cpu().item())
 
-        plt.figure(figsize=(8, 4))
-        plt.plot(hist_plot, label='Input Series (Mean)')
-        plt.title(f"Epoch {epoch} | GT: {int(true_label)} | Pred Prob: {prob:.4f}")
+        # 3. Plot
+        plt.figure(figsize=(10, 5))
+        x_hist = np.arange(len(hist_avg))
+        plt.plot(x_hist, hist_avg, label='Market Average (History)', color='blue', linewidth=2)
+
+        # Color code the title: Green if correct, Red if wrong
+        title_color = 'green' if pred_class == true_class else 'red'
+        title_text = f"Epoch {epoch} | Target: {true_class} | Pred: {pred_class} (Prob: {prob:.2f})"
+        
+        plt.title(title_text, color=title_color, fontweight='bold')
+        plt.xlabel("Time Steps")
+        plt.ylabel("Normalized Average Price")
+        plt.axvline(x=len(hist_avg)-1, color='gray', linestyle=':', label='Forecast Point')
+        plt.grid(True, linestyle='--', alpha=0.5)
         plt.legend()
-        plt.savefig(os.path.join(save_path, f"val_{epoch}_{np.random.randint(100)}.png"))
+        
+        plt.savefig(os.path.join(save_path, f"epoch_{epoch}_anomaly_val.png"))
         plt.close()

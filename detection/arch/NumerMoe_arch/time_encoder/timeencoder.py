@@ -148,7 +148,7 @@ class LinearBlock(nn.Module):
 
         for i in range(self.n_layer):
             temp = self.linIn[i](x)  
-            # temp = self.act(temp)
+            temp = self.act(temp)
             temp = self.dropout(temp)
             x_res[i] = temp
             x = temp

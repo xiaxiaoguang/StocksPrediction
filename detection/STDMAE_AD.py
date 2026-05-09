@@ -10,44 +10,41 @@ from basicts.utils.serialization import load_adj
 
 from .arch import STDMAE
 from .runner import STDMAEAnomalyRunner
-
-from .loss import BinaryDetectionLoss
+from .loss import BinaryDetectionLoss,MultiObjectiveDetectionLoss
 from .data import AnomalyDetectionDataset
+
 from basicts.utils.serialization import load_adj
 
 CFG = EasyDict()
 CFG.TRAIN = EasyDict()
-CFG.NOTE = {"Anomaly Detection 3"}
+CFG.NOTE = {"Anomaly Detection New"}
 
 CFG.TEST_ONLY = False
 # CFG.TRAIN.CKPT_SAVE_DIR = "/home/benyan2023/workspace/STEP/STEP/checkpoints/STDMAE_300/"
 # CFG.MD5 = "latest/"
 
 # ================= general ================= #
-CFG.DESCRIPTION = "STDMAE (AD) configuration for csi500A"
+CFG.DESCRIPTION = "STDMAE (AD) configuration for Minute_Origin_dataA"
 CFG.RUNNER = STDMAEAnomalyRunner
 CFG.DATASET_CLS = AnomalyDetectionDataset
-CFG.DATASET_NAME = "csi500A"
+CFG.DATASET_NAME = "Minute_Origin_dataA"
+CFG.DATASET_NAME = "Minute_Origin_dataA_300"
 CFG.DATASET_TYPE = "Finance data"
 
-CFG.DATAPARAM = {
-    "seq_len": 12,
-    "num_anomalies": 1000,
-    "x_h": 0.1, "x_f": 0.4,
-    "y_h": 0.07, "y_f": 0.05,
-    "z_h": 3, "z_f": 3,
-}
+from .NumerMoe_AD import DATAPARAM
+CFG.DATAPARAM = DATAPARAM
 
-ALL_BATCH_SIZE = 32
-SEQ_LEN = 12
+ALL_BATCH_SIZE = 128
+SEQ_LEN = 48
 OUT_LEN = 1  # Binary label: 0 or 1
 CFG.DATASET_INPUT_LEN = SEQ_LEN
 CFG.DATASET_OUTPUT_LEN = OUT_LEN
 CFG.GPU_NUM = 1
+NUM_NODES = 300
 
 # ================= environment ================= #
 CFG.ENV = EasyDict()
-CFG.ENV.SEED =  random.randint(0,10000000)
+CFG.ENV.SEED =  0
 CFG.ENV.CUDNN = EasyDict()
 CFG.ENV.CUDNN.ENABLED = True
 
@@ -73,7 +70,7 @@ CFG.MODEL.PARAM = {
                     "mode":"forecasting"
     },
     "backend_args": {
-    "num_nodes": 500,
+    "num_nodes": NUM_NODES,
     "supports": supports,
     "dropout": 0.3,
     "gcn_bool": True,
@@ -95,18 +92,18 @@ CFG.MODEL.TARGET_FEATURES = [0]
 CFG.MODEL.DDP_FIND_UNUSED_PARAMETERS = True
 
 # ================= optim ================= #
-CFG.TRAIN.LOSS = BinaryDetectionLoss()
+CFG.TRAIN.LOSS = MultiObjectiveDetectionLoss
 CFG.TRAIN.OPTIM = EasyDict()
 CFG.TRAIN.OPTIM.TYPE = "Adam"
 CFG.TRAIN.OPTIM.PARAM= {
-    "lr":0.0001,
+    "lr":1e-3,
     "weight_decay":1.0e-5,
     "eps":1.0e-8,
 }
 CFG.TRAIN.LR_SCHEDULER = EasyDict()
 CFG.TRAIN.LR_SCHEDULER.TYPE = "MultiStepLR"
 CFG.TRAIN.LR_SCHEDULER.PARAM= {
-    "milestones":[1, 18, 36, 54, 72],
+    "milestones":[36, 72],
     "gamma":0.5
 }
 

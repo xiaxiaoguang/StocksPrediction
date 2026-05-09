@@ -61,7 +61,6 @@ class MultiObjectiveDetectionLoss(nn.Module):
         
         if self.loss_global.pos_weight is not None:
             self.loss_global.pos_weight = self.loss_global.pos_weight.to(logits_g.device)
-            
         loss_g = self.loss_global(logits_g, labels_g)
         if self.use_focal:
             loss_g = self._focal_loss_wrapper(loss_g, labels_g)
@@ -72,7 +71,6 @@ class MultiObjectiveDetectionLoss(nn.Module):
 
         if self.loss_local.pos_weight is not None:
             self.loss_local.pos_weight = self.loss_local.pos_weight.to(logits_l.device)
-            
         loss_l = self.loss_local(logits_l, labels_l)
         if self.use_focal:
             loss_l = self._focal_loss_wrapper(loss_l, labels_l)
