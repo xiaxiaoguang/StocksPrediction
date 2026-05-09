@@ -56,7 +56,6 @@ class MultiObjectiveDetectionLoss(nn.Module):
 
         if self.loss_global.pos_weight is not None:
             self.loss_global.pos_weight = self.loss_global.pos_weight.to(logits_g.device)
-            
         loss_g = self.loss_global(logits_g, labels_g)
         
         # 2. Individual Stocks Loss
@@ -65,13 +64,12 @@ class MultiObjectiveDetectionLoss(nn.Module):
 
         if self.loss_local.pos_weight is not None:
             self.loss_local.pos_weight = self.loss_local.pos_weight.to(logits_l.device)
-            
         loss_l = self.loss_local(logits_l, labels_l)
         
         # 3. Combine
-        # total_loss = (self.alpha * loss_g) + (self.beta * loss_l)
+        total_loss = (loss_l)
         
-        return loss_l
+        return total_loss
     
 class AdaptiveMultiObjectiveLoss(nn.Module):
     """

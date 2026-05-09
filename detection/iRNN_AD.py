@@ -30,7 +30,7 @@ CFG.DATASET_NAME = "Minute_Origin_dataA_300"
 CFG.DATASET_TYPE = "Finance data"
 
 ALL_BATCH_SIZE = 128
-SEQ_LEN = 24
+SEQ_LEN = 48
 OUT_LEN  = 1
 EMBED_DIM = 128
 

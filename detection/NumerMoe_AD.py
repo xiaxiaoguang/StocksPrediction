@@ -14,7 +14,7 @@ from .data import AnomalyDetectionDataset
 
 CFG = EasyDict()
 CFG.TRAIN = EasyDict()
-CFG.NOTE = {"NumerMOE Final final"}
+CFG.NOTE = {"NumerMOE"}
 
 CFG.TEST_ONLY = False
 # CFG.TEST_ONLY = True
@@ -26,13 +26,14 @@ CFG.DESCRIPTION = "NumerMoe (AD) configuration"
 CFG.RUNNER = iTransformer2AnomalyRunner
 CFG.DATASET_CLS = AnomalyDetectionDataset
 CFG.DATASET_NAME = "Minute_Origin_dataA"
+CFG.DATASET_NAME = "Minute_Origin_dataA_300"
 CFG.DATASET_TYPE = "Finance data"
 
 ALL_BATCH_SIZE = 128
-SEQ_LEN = 24
+SEQ_LEN = 48
 OUT_LEN  = 64
 D_FF = 256
-NUM_VARIABLE = 50
+NUM_VARIABLE = 300
 DROPOUT = 0.5
 
 DATAPARAM = {
