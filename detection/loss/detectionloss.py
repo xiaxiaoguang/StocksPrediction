@@ -27,38 +27,45 @@ class BinaryDetectionLoss(nn.Module):
         
         # Calculate loss
         return loss_fn(logits, labels)
-
+    
 class MultiObjectiveDetectionLoss(nn.Module):
     """
-    Computes loss for both Global Trend [B, 1] and Individual Stocks [B, N].
+    Computes loss for Global Trend, Individual Stocks, and MoE Load Balancing.
     """
-    def __init__(self, alpha=0.5, beta=0.5, pos_weight_global=None, pos_weight_local=None):
-        super(MultiObjectiveDetectionLoss, self).__init__()
-        self.alpha = alpha  # Weight for global loss
-        self.beta = beta    # Weight for individual stock loss
+    def __init__(self, alpha=0.5, beta=0.5, gamma=0.1, 
+                 pos_weight_global=None, pos_weight_local=None, use_focal=False):
+        super().__init__()
+        self.alpha = alpha      # Weight for global loss
+        self.beta = beta        # Weight for individual stock loss
+        self.gamma = gamma      # Weight for MoE load balancing loss
+        self.use_focal = use_focal # Toggle for Focal Loss
         
-        # Pos weights to handle class imbalance independently
-        pw_global = torch.tensor([pos_weight_global], dtype=torch.float32) if pos_weight_global else None
-        pw_local = torch.tensor([pos_weight_local], dtype=torch.float32) if pos_weight_local else None
-        print("pos_weight_global, pos_weight_local",pos_weight_global,pos_weight_local)
-        self.loss_global = nn.BCEWithLogitsLoss(pos_weight=pw_global)
-        self.loss_local = nn.BCEWithLogitsLoss(pos_weight=pw_local)
+        pw_g = torch.tensor([pos_weight_global], dtype=torch.float32) if pos_weight_global else None
+        pw_l = torch.tensor([pos_weight_local], dtype=torch.float32) if pos_weight_local else None
+        
+        # If using focal loss, we need the raw unreduced BCE loss first
+        reduction = 'none' if use_focal else 'mean'
+        self.loss_global = nn.BCEWithLogitsLoss(pos_weight=pw_g, reduction=reduction)
+        self.loss_local = nn.BCEWithLogitsLoss(pos_weight=pw_l, reduction=reduction)
+
+    def _focal_loss_wrapper(self, bce_loss, targets, focal_alpha=0.25, focal_gamma=2.0):
+        # bce_loss is already computed with pos_weights
+        pt = torch.exp(-bce_loss) 
+        focal_weight = (focal_alpha * targets + (1 - focal_alpha) * (1 - targets)) * (1 - pt) ** focal_gamma
+        return (focal_weight * bce_loss).mean()
 
     def forward(self, preds: dict, targets: dict, **kwargs):
-        """
-        Expects preds and targets to be dictionaries containing:
-        - 'global': Tensor of shape [B, 1]`
-        - 'local': Tensor of shape [B, N]
-        """
-        # # 1. Global Trend Loss
+        # 1. Global Trend Loss
         logits_g = preds['global']
         labels_g = targets['global'].float()
-
+        
         if self.loss_global.pos_weight is not None:
             self.loss_global.pos_weight = self.loss_global.pos_weight.to(logits_g.device)
             
         loss_g = self.loss_global(logits_g, labels_g)
-        
+        if self.use_focal:
+            loss_g = self._focal_loss_wrapper(loss_g, labels_g)
+            
         # 2. Individual Stocks Loss
         logits_l = preds['local']
         labels_l = targets['local'].float()
@@ -67,70 +74,27 @@ class MultiObjectiveDetectionLoss(nn.Module):
             self.loss_local.pos_weight = self.loss_local.pos_weight.to(logits_l.device)
             
         loss_l = self.loss_local(logits_l, labels_l)
+        if self.use_focal:
+            loss_l = self._focal_loss_wrapper(loss_l, labels_l)
         
-        # 3. Combine
-        # total_loss = (self.alpha * loss_g) + (self.beta * loss_l)
+        # 3. MoE Load Balancing Loss
+        loss_moe = 0.0
+        if 'routing_weights' in preds and preds['routing_weights'] is not None:
+            # Expected shape: [Batch, Seq_Len, Num_Experts] or [Batch, Num_Experts]
+            gates = preds['routing_weights'] 
+            
+            # Flatten all dimensions except the expert dimension
+            gates = gates.view(-1, gates.size(-1))
+            num_experts = gates.size(-1)
+            
+            # Calculate the mean probability assigned to each expert across the batch
+            mean_probs = gates.mean(dim=0)
+            
+            # Continuous load balancing proxy: E * sum(P_i^2)
+            # Minimizing this forces the distribution toward 1/E (uniform)
+            loss_moe = num_experts * torch.sum(mean_probs * mean_probs)
         
-        return loss_l
-    
-class AdaptiveMultiObjectiveLoss(nn.Module):
-    """
-    Computes Adaptive Loss for Global Trend [B, 1] and Individual Stocks [B, N].
-    Automatically balances tasks using Uncertainty Weighting and handles 
-    imbalance using Focal Loss.
-    """
-    def __init__(self, gamma=2.0, alpha=0.25):
-        super(AdaptiveMultiObjectiveLoss, self).__init__()
-        
-        # 1. Learnable task weights (initialized to 0)
-        # We use log variance to avoid division by zero during training
-        self.log_var_g = nn.Parameter(torch.zeros(1))
-        self.log_var_l = nn.Parameter(torch.zeros(1))
-        
-        # 2. Focal Loss parameters
-        self.gamma = gamma
-        self.alpha_focal = alpha # Optional: standard alpha balancing for Focal Loss
-
-    def focal_loss_with_logits(self, logits, targets):
-        """
-        Numerically stable Focal Loss implementation.
-        """
-        bce_loss = F.binary_cross_entropy_with_logits(logits, targets, reduction='none')
-        
-        # pt is the probability of the true class
-        pt = torch.exp(-bce_loss) 
-        
-        # Calculate focal term
-        focal_term = (1 - pt) ** self.gamma
-        
-        # Optional alpha weighting (different from your task alpha!)
-        # alpha_t = self.alpha_focal * targets + (1 - self.alpha_focal) * (1 - targets)
-        
-        focal_loss = focal_term * bce_loss
-        return focal_loss.mean()
-
-    def forward(self, preds: dict, targets: dict, **kwargs):
-        # Extract predictions and targets
-        logits_g = preds['global']
-        labels_g = targets['global'].float()
-        
-        logits_l = preds['local']
-        labels_l = targets['local'].float()
-
-        # 1. Compute Individual Focal Losses
-        loss_g = self.focal_loss_with_logits(logits_g, labels_g)
-        loss_l = self.focal_loss_with_logits(logits_l, labels_l)
-
-        # 2. Apply Uncertainty Weighting
-        # precision = exp(-log_var) = 1 / sigma^2
-        precision_g = torch.exp(-self.log_var_g)
-        precision_l = torch.exp(-self.log_var_l)
-
-        # loss = precision * L + log_var
-        weighted_loss_g = precision_g * loss_g + self.log_var_g
-        weighted_loss_l = precision_l * loss_l + self.log_var_l
-
-        # 3. Combine
-        total_loss = weighted_loss_g + weighted_loss_l
-        
+        # 4. Combine
+        # total_loss = (self.alpha * loss_g) + (self.beta * loss_l) + (self.gamma * loss_moe)
+        total_loss = loss_l
         return total_loss

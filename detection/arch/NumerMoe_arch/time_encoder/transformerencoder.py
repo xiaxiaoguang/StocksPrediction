@@ -1,4 +1,3 @@
-# from MambaModel import *
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -176,55 +175,53 @@ class NormActivation(nn.Module):
         norm = torch.linalg.vector_norm(x, dim=-1, keepdim=True, ord=torch.inf) + self.eps
         return x / norm * self.func(norm)
 
-class TimeEncoder(nn.Module):
+class LinearTransformerEncoder(nn.Module):
     def __init__(self, configs):
         super().__init__()
-        self.n_layer = configs['n_layer']
-        self.norm_layer = Norm(configs['input_dim'],selected=(2,), affine=False)
-
-        # if configs.patch_level != -1:
-        #     self.multi_level_patch_embed_layer = ML_Patch_Embedding(configs.seq_len,configs.patch_dim,configs.patch_level,nn.Linear)
+        self.n_layer = configs.get('n_layer', 1)
+        
+        # Assuming Norm is a custom class defined elsewhere in your project
+        self.norm_layer = Norm(configs['input_dim'], selected=(2,), affine=False)
+        print("Initializing Ablation: Linear + Transformer Encoder")
+        
+        # Linear projection block
         self.real_layer = LinearBlock(configs, 'Real')
-        self.complex_layer = LinearBlock(configs, 'Complex')
-        # self.quaternion_layer = LinearBlock(configs, 'Quaternion')
-        # self.octonion_layer = LinearBlock(configs, 'Octonion')
-        # self.sedenion_layer = LinearBlock(configs, 'Sedenion')
+        
+        # Setup Transformer with best default parameters for ablations
+        # Assuming configs['pre_len'] maps to the feature dimension (d_model) out of the LinearBlock
+        d_model = configs.get('pre_len', 512) 
+        nhead = configs.get('nhead', 8)
+        num_layers = configs.get('trans_layers', 2) # 2-3 layers is usually a good default for an ablation
+        dim_feedforward = configs.get('dim_feedforward', d_model * 4) # Standard 4x expansion
+        dropout = configs.get('dropout', 0.1)
 
-        # self.gelu=nn.GELU()
-        # self.dropout= nn.Dropout(configs.dropout)
-        # self.var_fusion_layer  = nn.Linear(5,configs.pred_len)
-        # self.mean_fusion_layer = nn.Linear(5,configs.pred_len)
-        # self.output_layer_mean = nn.Linear(configs.pred_len,5)
-        # self.output_layer_var  = nn.Linear(configs.pred_len,5)
-        # self.final_fusion = nn.Linear(configs['pre_len'] * 5 , configs['pre_len'] * 2)
+        # Using PyTorch's native Transformer layer for optimized performance
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, 
+            nhead=nhead, 
+            dim_feedforward=dim_feedforward, 
+            dropout=dropout,
+            activation='gelu', # GeLU generally outperforms ReLU in modern transformers
+            batch_first=True   # Ensures input format is (batch, seq, feature)
+        )
+        self.trans = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
     def forward(self, x):
-
+        # Initial permutation
         x = torch.permute(x, (0, 2, 1))
-        x = self.norm_layer(x,  'norm')
-
-        if hasattr(self,'multi_level_patch_embed_layer'): 
-            x = self.multi_level_patch_embed_layer(x)
-
-        if hasattr(self,'real_layer'):
-            re,re_real = self.real_layer(x)
-
-        if hasattr(self,'complex_layer'):
-            bi,bi_real = self.complex_layer(x)
         
-        if hasattr(self,'quaternion_layer'):
-            qu,qu_real = self.quaternion_layer(x)
+        # Normalization
+        x = self.norm_layer(x, 'norm')
 
-        if hasattr(self,'octonion_layer'):
-            oc,oc_real = self.octonion_layer(x)
+        # Linear encoding phase
+        if hasattr(self, 'real_layer'):
+            re, re_real = self.real_layer(x)
+        else:
+            re_real = x
 
-        if hasattr(self,'sedenion_layer'):
-            se,se_real = self.sedenion_layer(x)
+        # Transformer encoding phase
+        # Note: re_real must be of shape (batch_size, sequence_length, d_model) 
+        # to work natively with batch_first=True
+        enc = self.trans(re_real)
 
-        # stack_real = torch.cat([re_real, bi_real, qu_real],dim=-1)
-        # stack_real = torch.cat([re_real, bi_real, qu_real, oc_real],dim=-1)
-        stack_real = torch.cat([re_real, bi_real],dim=-1)
-        # stack_real = re_real
-        # enc = self.final_fusion(stack_real)
-        enc = stack_real
         return enc

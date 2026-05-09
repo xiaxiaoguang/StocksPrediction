@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .time_encoder import TimeEncoder,LinearEncoder,FourierEncoder,LinearTransformerEncoder
+from .time_encoder import TimeEncoder
 from .space_encoder import SpaceEncoder
 
 class NumerMoe(nn.Module):
@@ -15,8 +15,6 @@ class NumerMoe(nn.Module):
         dropout = spc_configs["dropout"]
 
         self.temporal = TimeEncoder(tim_configs)
-        # self.temporal = FourierEncoder(tim_configs)
-        # self.temporal = LinearTransformerEncoder(tim_configs)
         self.spatial  = SpaceEncoder(spc_configs)
         self.norm = nn.LayerNorm(d_model)
         

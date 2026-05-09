@@ -62,7 +62,16 @@ class Norm(nn.Module):
             x = x / (self.affine_weight + self.eps)
         x = (x * self.stdev + self.mean)
         return x
+    
+class CFloatLinear(nn.Module):
+    def __init__(self, in_features, out_features):
+        super().__init__()
+        # Modern PyTorch supports complex dtypes directly in nn.Linear
+        self.linear = nn.Linear(in_features, out_features, dtype=torch.cfloat)
 
+    def forward(self, x):
+        return self.linear(x)
+    
 class LinearBlock(nn.Module):
     def __init__(self, configs, linear_name, return_mod='real'):
         super().__init__()
@@ -70,73 +79,79 @@ class LinearBlock(nn.Module):
 
         self.n_layer = configs["n_layer"]
         self.configs = configs
-        self.return_mod=return_mod
+        self.return_mod = return_mod
         
         if linear_name == 'Real':
             self.linear_module = nn.Linear
 
-        elif linear_name in  ['Complex']:
-            self.linear_module = ComplexLinear
+        elif linear_name == 'Complex':
+            # Use the new native complex linear layer
+            self.linear_module = CFloatLinear
 
-        elif linear_name in ['Quaternion']:
+        elif linear_name == 'Quaternion':
             self.linear_module = QuaternionLinear
 
-        elif linear_name in ['Octonion']:
+        elif linear_name == 'Octonion':
             self.linear_module = OctonionLinear
 
-        elif linear_name in ['Sedenion']:
+        elif linear_name == 'Sedenion':
             self.linear_module = SedenionLinear
         
-        # if self.configs.patch_level != -1 :
         if False:
-            self.linIn =nn.ModuleList([
+            self.linIn = nn.ModuleList([
                 self._block_creator(
-                                    self.configs.patch_level*self.configs.patch_dim,
+                                    self.configs.patch_level * self.configs.patch_dim,
                                     self.configs.d_model[0],
                                     self.linear_module)])
-        else :
-            self.linIn =nn.ModuleList([
+        else:
+            self.linIn = nn.ModuleList([
                 self._block_creator(
                                     self.configs['seq_len'],
                                     self.configs['d_model'][0],
                                     self.linear_module)])
 
-        
         self.dropout = nn.Dropout(self.configs['dropout'])
 
-        for i in range(1,self.n_layer):
+        for i in range(1, self.n_layer):
             self.linIn.append(self._block_creator(
                                 self.configs['d_model'][i-1],
                                 self.configs["d_model"][i],
                                 self.linear_module))
             
-        self.act = NormActivation(F.tanh)
-        self.outLinear= self.linear_module(sum(self.configs["d_model"]) , self.configs['pre_len'])
+        # Assuming NormActivation is defined elsewhere
+        self.act = NormActivation(F.tanh) 
+        self.outLinear = self.linear_module(sum(self.configs["d_model"]), self.configs['pre_len'])
 
-    def _block_creator(self,d_model, d_out,function):
-            return function(d_model,d_out)
+    def _block_creator(self, d_model, d_out, function):
+        return function(d_model, d_out)
 
+    # Use FFT for real to complex
+    def real_to_complex_fft(self, x):
+        # Applies Fast Fourier Transform along the last dimension
+        # Output is natively a torch.cfloat tensor
+        return torch.fft.fft(x, dim=-1)
 
-    def real_to_complex(self,x):
-        zero = torch.zeros_like(x)  
-        return torch.stack([x, zero], dim=-1)
+    # Use IFFT for complex to real
+    def complex_to_real_ifft(self, x):
+        # Applies Inverse Fast Fourier Transform and extracts the real part
+        return torch.fft.ifft(x, dim=-1).real
 
-    def real_to_quaternion(self,x):
+    def real_to_quaternion(self, x):
         zero = torch.zeros_like(x)  
         return torch.stack([x, zero, zero, zero], dim=-1)
         
-    def real_to_octonion(self,x):
+    def real_to_octonion(self, x):
         zero = torch.zeros_like(x)
         return torch.stack([x, zero, zero, zero, zero, zero, zero, zero], dim=-1)
     
-    def real_to_sedenion(self,x):
+    def real_to_sedenion(self, x):
         zero = torch.zeros_like(x)  
         return torch.stack([x,    zero, zero, zero, zero, zero, zero, zero,
                             zero, zero, zero, zero, zero, zero, zero, zero], dim=-1)  
     
     def forward(self, x):
         if self.linear_name == 'Complex':
-            x = self.real_to_complex(x)
+            x = self.real_to_complex_fft(x)
         elif self.linear_name == 'Quaternion':
             x = self.real_to_quaternion(x)
         elif self.linear_name == 'Octonion':
@@ -149,24 +164,27 @@ class LinearBlock(nn.Module):
         for i in range(self.n_layer):
             temp = self.linIn[i](x)  
             # temp = self.act(temp)
-            temp = self.dropout(temp)
+            # temp = self.dropout(temp)
             x_res[i] = temp
             x = temp
 
-        if self.linear_name == 'Real':
-            x = torch.cat(x_res,dim=-1)
+        if self.linear_name in ['Real', 'Complex']:
+            x = torch.cat(x_res, dim=-1)
         else:
-            x = torch.cat(x_res,dim=-2)
+            x = torch.cat(x_res, dim=-2)
 
         x = self.outLinear(x)
         
-        if self.linear_name != 'Real':
-            x_real = torch.mean(x,dim=-1)
-        else:
+        # Route back to real
+        if self.linear_name == 'Real':
             x_real = x
+        elif self.linear_name == 'Complex':
+            x_real = self.complex_to_real_ifft(x)
+        else:
+            x_real = torch.mean(x, dim=-1)
 
-        return x,x_real
-
+        return x, x_real
+    
 class NormActivation(nn.Module):
     def __init__(self, function, eps=1e-8):
         super(NormActivation, self).__init__()
@@ -176,27 +194,14 @@ class NormActivation(nn.Module):
         norm = torch.linalg.vector_norm(x, dim=-1, keepdim=True, ord=torch.inf) + self.eps
         return x / norm * self.func(norm)
 
-class TimeEncoder(nn.Module):
+class FourierEncoder(nn.Module):
     def __init__(self, configs):
         super().__init__()
         self.n_layer = configs['n_layer']
         self.norm_layer = Norm(configs['input_dim'],selected=(2,), affine=False)
 
-        # if configs.patch_level != -1:
-        #     self.multi_level_patch_embed_layer = ML_Patch_Embedding(configs.seq_len,configs.patch_dim,configs.patch_level,nn.Linear)
-        self.real_layer = LinearBlock(configs, 'Real')
         self.complex_layer = LinearBlock(configs, 'Complex')
-        # self.quaternion_layer = LinearBlock(configs, 'Quaternion')
-        # self.octonion_layer = LinearBlock(configs, 'Octonion')
-        # self.sedenion_layer = LinearBlock(configs, 'Sedenion')
 
-        # self.gelu=nn.GELU()
-        # self.dropout= nn.Dropout(configs.dropout)
-        # self.var_fusion_layer  = nn.Linear(5,configs.pred_len)
-        # self.mean_fusion_layer = nn.Linear(5,configs.pred_len)
-        # self.output_layer_mean = nn.Linear(configs.pred_len,5)
-        # self.output_layer_var  = nn.Linear(configs.pred_len,5)
-        # self.final_fusion = nn.Linear(configs['pre_len'] * 5 , configs['pre_len'] * 2)
 
     def forward(self, x):
 
@@ -223,8 +228,8 @@ class TimeEncoder(nn.Module):
 
         # stack_real = torch.cat([re_real, bi_real, qu_real],dim=-1)
         # stack_real = torch.cat([re_real, bi_real, qu_real, oc_real],dim=-1)
-        stack_real = torch.cat([re_real, bi_real],dim=-1)
-        # stack_real = re_real
+        # stack_real = torch.cat([re_real, bi_real],dim=-1)
+        stack_real = bi_real
         # enc = self.final_fusion(stack_real)
         enc = stack_real
         return enc

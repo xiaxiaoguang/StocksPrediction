@@ -9,20 +9,17 @@ from basicts.utils.serialization import load_adj
 
 from .arch import NumerMoe
 from .runner import iTransformer2AnomalyRunner
-from .loss import MultiObjectiveDetectionLoss
+from .loss import MultiObjectiveDetectionLoss, AdaptiveMultiObjectiveLoss
 from .data import AnomalyDetectionDataset
 
 CFG = EasyDict()
 CFG.TRAIN = EasyDict()
-CFG.NOTE = {"NumerMOE REAL COMPLEX"}
+CFG.NOTE = {"FourierMOE"}
 
 CFG.TEST_ONLY = False
-# CFG.TEST_ONLY = True
-# CFG.TRAIN.CKPT_SAVE_DIR = "/home/benyan2023/workspace/STEP/STEP/checkpoints/NumerMoe_100/"
-# CFG.MD5 = "c2d690c7ed349a154a77cd6dd41e294a"
 
 # ================= general ================= #
-CFG.DESCRIPTION = "NumerMoe (AD) configuration"
+CFG.DESCRIPTION = "FourierMOE (AD) configuration"
 CFG.RUNNER = iTransformer2AnomalyRunner
 CFG.DATASET_CLS = AnomalyDetectionDataset
 CFG.DATASET_NAME = "Minute_Origin_dataA"
@@ -30,8 +27,8 @@ CFG.DATASET_TYPE = "Finance data"
 
 ALL_BATCH_SIZE = 128
 SEQ_LEN = 24
-OUT_LEN  = 64
-D_FF = 512
+OUT_LEN  = 128
+D_FF = 256
 NUM_VARIABLE = 50
 DROPOUT = 0.5
 
@@ -57,7 +54,7 @@ CFG.ENV.CUDNN.ENABLED = True
 
 # ================= model ================= #
 CFG.MODEL = EasyDict()
-CFG.MODEL.NAME = "NumerMoe"
+CFG.MODEL.NAME = "FourierMOE"
 CFG.MODEL.ARCH = NumerMoe
 
 CFG.MODEL.PARAM = {
@@ -65,18 +62,18 @@ CFG.MODEL.PARAM = {
         'seq_len':SEQ_LEN,
         'pre_len':OUT_LEN,
         'input_dim':1,
-        'd_model':[64,16],
-        "n_layer":2,
+        'd_model':[OUT_LEN],
+        "n_layer":1,
         "dropout":DROPOUT,
         "patch_level":-1,
     },
 
     "spc_configs":{
-        'd_model':OUT_LEN*2,
+        'd_model':OUT_LEN,
         'n_heads':    4,
         'num_layers' :4,
-        'num_experts':4,
-        'top_k'      :2,
+        'num_experts':1,
+        'top_k'      :1,
         'dropout':DROPOUT,
         'd_ff':D_FF,
         'num_stocks':NUM_VARIABLE,
@@ -93,22 +90,20 @@ CFG.TRAIN.OPTIM = EasyDict()
 CFG.TRAIN.OPTIM.TYPE = "Adam"
 CFG.TRAIN.OPTIM.PARAM= {
     "lr":1e-3,
-    "amsgrad":True, # ?
     "weight_decay":1e-5,
-    "eps":1.0e-8,
 }
 
 CFG.TRAIN.NUM_EPOCHS = 100
-CFG.TRAIN.LR_SCHEDULER = EasyDict()
-CFG.TRAIN.LR_SCHEDULER.TYPE = "CosineAnnealingLR"
-CFG.TRAIN.LR_SCHEDULER.PARAM= {
-    "T_max": CFG.TRAIN.NUM_EPOCHS // 4,
-    "eta_min":1e-5,
-}
+# CFG.TRAIN.LR_SCHEDULER = EasyDict()
+# CFG.TRAIN.LR_SCHEDULER.TYPE = "CosineAnnealingLR"
+# CFG.TRAIN.LR_SCHEDULER.PARAM= {
+#     "T_max": CFG.TRAIN.NUM_EPOCHS // 4,
+#     "eta_min":1e-5,
+# }
 # ================= train ================= #
-CFG.TRAIN.CLIP_GRAD_PARAM = {
-    "max_norm": 3.0
-}
+# CFG.TRAIN.CLIP_GRAD_PARAM = {
+#     "max_norm": 3.0
+# }
 if not CFG.TEST_ONLY:
     CFG.TRAIN.CKPT_SAVE_DIR = os.path.join(
         "checkpoints",
