@@ -581,7 +581,7 @@ def generate_enhanced_anomaly_datasets(features, save_path, seq_len=12, testl=50
 @dataclass
 class ParametersForAD:
     # 1. Dataset/Sequence Params
-    seq_len: int = 24
+    seq_len: int = 48
     num_anomalies: int = 0
     
     # 只影响训练集
@@ -610,8 +610,8 @@ class ParametersForAD:
 
 cfg = ParametersForAD()
 np.random.seed(42)
-suffix = '_300'
 suffix = ''
+suffix = '_300'
 name = "Minute_Origin_data"
 save_path2 = name + 'A'  + suffix
 save_path = 'raw_data'
